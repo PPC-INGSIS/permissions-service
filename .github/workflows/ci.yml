@@ -1,0 +1,13 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+
+jobs:
+  check:
+    # El token de la corrida no puede tener más permisos que los que se le dan acá
+    permissions:
+      contents: read
+      packages: read
+    uses: PPC-INGSIS/workflow/.github/workflows/gradle-check.yml@v3
