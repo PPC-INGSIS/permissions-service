@@ -1,0 +1,12 @@
+name: Publish
+
+on:
+  push:
+    branches: [dev, main]
+
+jobs:
+  publish:
+    permissions:
+      contents: read
+      packages: write
+    uses: PPC-INGSIS/workflow/.github/workflows/docker-publish.yml@v3
