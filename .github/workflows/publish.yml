@@ -1,8 +1,10 @@
 name: Publish
 
+# La imagen se construye una sola vez, en dev. Prod usa esa misma imagen: el release es el
+# PR de dev a main en infraestructura, que lleva el mismo SHA.
 on:
   push:
-    branches: [dev, main]
+    branches: [dev]
 
 jobs:
   publish:
@@ -13,9 +15,7 @@ jobs:
 
   update-infra:
     needs: publish
-    # Solo dev: prod se actualiza a mano
-    if: github.ref_name == 'dev'
-    uses: PPC-INGSIS/workflow/.github/workflows/update-infra.yml@v4
+    uses: PPC-INGSIS/workflow/.github/workflows/update-infra.yml@v5
     with:
       image: ${{ needs.publish.outputs.image }}
       tag-var: PERMISSIONS_TAG
