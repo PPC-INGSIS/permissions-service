@@ -10,3 +10,15 @@ jobs:
       contents: read
       packages: write
     uses: PPC-INGSIS/workflow/.github/workflows/docker-publish.yml@v3
+
+  update-infra:
+    needs: publish
+    # Solo dev: prod se actualiza a mano
+    if: github.ref_name == 'dev'
+    uses: PPC-INGSIS/workflow/.github/workflows/update-infra.yml@v4
+    with:
+      image: ${{ needs.publish.outputs.image }}
+      tag-var: PERMISSIONS_TAG
+      client-id: ${{ vars.INFRA_APP_CLIENT_ID }}
+    secrets:
+      app-private-key: ${{ secrets.INFRA_APP_PRIVATE_KEY }}
