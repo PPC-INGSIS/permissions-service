@@ -22,4 +22,16 @@ class PermissionService(
 
         return RegisterAccessResult.Registered(repository.save(SnippetPermission(id, parsedRole)))
     }
+
+    /**
+     * El rol que tiene ese usuario sobre ese snippet, o null si no tiene ninguno.
+     *
+     * Null y no un sealed interface: los unicos casos son "tiene un rol" y "no tiene",
+     * y el segundo no lleva informacion. Role? ya dice exactamente eso.
+     */
+    @Transactional(readOnly = true)
+    fun findRole(
+        snippetId: UUID,
+        userId: String,
+    ): Role? = repository.findById(SnippetPermissionId(snippetId, userId)).orElse(null)?.role
 }
