@@ -7,6 +7,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import snippetsearcher.permissions.TestcontainersConfiguration
 import java.util.UUID
@@ -88,6 +89,75 @@ class PermissionControllerTest(
         registrar(UUID.randomUUID(), "OWNER", userId = largo).andExpect {
             status { isBadRequest() }
             jsonPath("$.message") { exists() }
+        }
+    }
+
+    private fun consultar(
+        snippetId: Any,
+        userId: String = SOME_USER,
+    ) = mockMvc.get("/permissions/{snippetId}", snippetId) {
+        param("userId", userId)
+    }
+
+    @Test
+    fun `GET permissions devuelve el rol del usuario`() {
+        val snippetId = UUID.randomUUID()
+        registrar(snippetId, "OWNER")
+
+        consultar(snippetId).andExpect {
+            status { isOk() }
+            jsonPath("$.snippetId") { value(snippetId.toString()) }
+            jsonPath("$.role") { value("OWNER") }
+        }
+    }
+
+    @Test
+    fun `GET permissions de un usuario sin acceso responde 404`() {
+        val snippetId = UUID.randomUUID()
+        registrar(snippetId, "OWNER")
+
+        consultar(snippetId, userId = "auth0|00000000000000000000000b").andExpect {
+            status { isNotFound() }
+            jsonPath("$.message") { exists() }
+        }
+    }
+
+    @Test
+    fun `GET permissions de un snippet que nadie registro responde 404`() {
+        consultar(UUID.randomUUID()).andExpect {
+            status { isNotFound() }
+        }
+    }
+
+    // La razon de que el userId sea query param: en el path, Tomcat rechaza varios de
+    // estos caracteres por defecto, incluso codificados, y nunca se llegaria al controller
+    @Test
+    fun `GET permissions acepta un userId con caracteres raros`() {
+        val raros = listOf("auth0|abc", "waad|tenant/user", "oidc|user@example.com")
+
+        raros.forEach { userId ->
+            val snippetId = UUID.randomUUID()
+            registrar(snippetId, "READ", userId = userId)
+
+            consultar(snippetId, userId = userId).andExpect {
+                status { isOk() }
+                jsonPath("$.userId") { value(userId) }
+                jsonPath("$.role") { value("READ") }
+            }
+        }
+    }
+
+    @Test
+    fun `GET permissions con un snippetId que no es UUID responde 400`() {
+        consultar("no-es-un-uuid").andExpect {
+            status { isBadRequest() }
+        }
+    }
+
+    @Test
+    fun `GET permissions sin userId responde 400`() {
+        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()).andExpect {
+            status { isBadRequest() }
         }
     }
 

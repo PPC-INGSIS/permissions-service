@@ -2,9 +2,12 @@ package snippetsearcher.permissions.permission
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
 
@@ -22,27 +25,46 @@ class PermissionController(
                 ResponseEntity.status(HttpStatus.CREATED).body(result.permission.toResponse())
 
             is RegisterAccessResult.AlreadyRegistered ->
-                ResponseEntity.status(HttpStatus.CONFLICT).body(
-                    ErrorResponse("El usuario ya tiene un rol sobre ese snippet"),
-                )
+                error(HttpStatus.CONFLICT, "El usuario ya tiene un rol sobre ese snippet")
 
+            // Los validos salen del enum: agregar un rol no deja este mensaje viejo
             is RegisterAccessResult.InvalidRole ->
-                ResponseEntity.badRequest().body(
-                    // Los validos salen del enum: agregar un rol no deja este mensaje viejo
-                    ErrorResponse("El rol '${result.role}' no existe. Los validos son: ${Role.entries.joinToString()}"),
+                error(
+                    HttpStatus.BAD_REQUEST,
+                    "El rol '${result.role}' no existe. Los validos son: ${Role.entries.joinToString()}",
                 )
 
             is RegisterAccessResult.BlankUserId ->
-                ResponseEntity.badRequest().body(ErrorResponse("Falta el userId"))
+                error(HttpStatus.BAD_REQUEST, "Falta el userId")
 
             is RegisterAccessResult.UserIdTooLong ->
-                ResponseEntity.badRequest().body(
-                    ErrorResponse(
-                        "El userId no puede superar los " +
-                            "${SnippetPermissionId.MAX_USER_ID_LENGTH} caracteres",
-                    ),
+                error(
+                    HttpStatus.BAD_REQUEST,
+                    "El userId no puede superar los ${SnippetPermissionId.MAX_USER_ID_LENGTH} caracteres",
                 )
         }
+
+    /**
+     * El userId va como query param y no en el path a proposito.
+     *
+     * Es el "sub" de Auth0: un String opaco que puede traer "|", "/" o "@" segun el
+     * proveedor. Tomcat rechaza varios de esos caracteres en el path por defecto —
+     * incluso codificados, como %2F— y devolveria 400 antes de llegar hasta aca.
+     */
+    @GetMapping("/{snippetId}")
+    fun role(
+        @PathVariable snippetId: UUID,
+        @RequestParam userId: String,
+    ): ResponseEntity<out Any> =
+        service.findRole(snippetId, userId)?.let {
+            ResponseEntity.ok(PermissionResponse(snippetId, userId, it))
+        } ?: error(HttpStatus.NOT_FOUND, "El usuario no tiene acceso a ese snippet")
+
+    /** Todas las respuestas de error salen por acá, con la misma forma. */
+    private fun error(
+        status: HttpStatus,
+        message: String,
+    ): ResponseEntity<ErrorResponse> = ResponseEntity.status(status).body(ErrorResponse(message))
 }
 
 // El rol viaja como texto y no como Role: si fuera el enum, un valor invalido lo
