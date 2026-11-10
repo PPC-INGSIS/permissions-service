@@ -19,4 +19,10 @@ sealed interface RegisterAccessResult {
     data class InvalidRole(
         val role: String,
     ) : RegisterAccessResult
+
+    /** Sin userId no hay a quién darle el acceso. */
+    data object BlankUserId : RegisterAccessResult
+
+    /** Más largo que la columna: sin esto, la base lo rechaza y sale un 500. */
+    data object UserIdTooLong : RegisterAccessResult
 }

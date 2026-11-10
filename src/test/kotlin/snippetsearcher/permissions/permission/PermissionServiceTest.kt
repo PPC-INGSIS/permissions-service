@@ -6,6 +6,10 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import snippetsearcher.permissions.TestcontainersConfiguration
 import java.util.UUID
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -86,5 +90,63 @@ class PermissionServiceTest
             assertEquals(Role.READ, Role.of("READ"))
             assertNull(Role.of("owner"))
             assertNull(Role.of(""))
+        }
+
+        @Test
+        fun `un userId vacio no se guarda`() {
+            val snippetId = UUID.randomUUID()
+
+            assertIs<RegisterAccessResult.BlankUserId>(service.register(snippetId, "   ", "OWNER"))
+            assertEquals(false, repository.existsById(SnippetPermissionId(snippetId, "   ")))
+        }
+
+        @Test
+        fun `un userId mas largo que la columna no se guarda`() {
+            val largo = "a".repeat(SnippetPermissionId.MAX_USER_ID_LENGTH + 1)
+
+            val result = service.register(UUID.randomUUID(), largo, "OWNER")
+
+            assertIs<RegisterAccessResult.UserIdTooLong>(result)
+        }
+
+        /**
+         * El caso que motivó insertIfAbsent: con existsById + save, varios hilos pasan el
+         * chequeo y el segundo en commitear revienta contra la PK, lo que sale como 500.
+         *
+         * Es probabilístico por naturaleza: la barrera hace que larguen juntos para que la
+         * ventana se abra, pero lo que prueba es que no hay ventana que abrir.
+         */
+        @Test
+        fun `altas simultaneas del mismo acceso no fallan y gana una sola`() {
+            val snippetId = UUID.randomUUID()
+            val hilos = 8
+            val listos = CountDownLatch(hilos)
+            val largada = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(hilos)
+
+            val pendientes =
+                (1..hilos).map {
+                    pool.submit(
+                        Callable {
+                            listos.countDown()
+                            largada.await()
+                            service.register(snippetId, someUser, "OWNER")
+                        },
+                    )
+                }
+
+            listos.await()
+            largada.countDown()
+            // Si alguno tiró excepción, get() la propaga y el test falla acá
+            val resultados = pendientes.map { it.get(TIMEOUT_SEGUNDOS, TimeUnit.SECONDS) }
+            pool.shutdown()
+
+            assertEquals(1, resultados.count { it is RegisterAccessResult.Registered })
+            assertEquals(hilos - 1, resultados.count { it is RegisterAccessResult.AlreadyRegistered })
+            assertEquals(Role.OWNER, repository.findById(SnippetPermissionId(snippetId, someUser)).get().role)
+        }
+
+        private companion object {
+            const val TIMEOUT_SEGUNDOS = 10L
         }
     }

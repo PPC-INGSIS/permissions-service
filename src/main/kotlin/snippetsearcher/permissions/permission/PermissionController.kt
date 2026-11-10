@@ -28,7 +28,19 @@ class PermissionController(
 
             is RegisterAccessResult.InvalidRole ->
                 ResponseEntity.badRequest().body(
-                    ErrorResponse("El rol '${result.role}' no existe. Los validos son: OWNER, READ"),
+                    // Los validos salen del enum: agregar un rol no deja este mensaje viejo
+                    ErrorResponse("El rol '${result.role}' no existe. Los validos son: ${Role.entries.joinToString()}"),
+                )
+
+            is RegisterAccessResult.BlankUserId ->
+                ResponseEntity.badRequest().body(ErrorResponse("Falta el userId"))
+
+            is RegisterAccessResult.UserIdTooLong ->
+                ResponseEntity.badRequest().body(
+                    ErrorResponse(
+                        "El userId no puede superar los " +
+                            "${SnippetPermissionId.MAX_USER_ID_LENGTH} caracteres",
+                    ),
                 )
         }
 }
