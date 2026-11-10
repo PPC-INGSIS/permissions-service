@@ -87,4 +87,40 @@ class PermissionServiceTest
             assertNull(Role.of("owner"))
             assertNull(Role.of(""))
         }
+
+        @Test
+        fun `consultar el rol del dueno devuelve OWNER`() {
+            val snippetId = UUID.randomUUID()
+            service.register(snippetId, someUser, "OWNER")
+
+            assertEquals(Role.OWNER, service.findRole(snippetId, someUser))
+        }
+
+        @Test
+        fun `consultar el rol de alguien con quien se compartio devuelve READ`() {
+            val snippetId = UUID.randomUUID()
+            val otroUser = "auth0|00000000000000000000000a"
+            service.register(snippetId, otroUser, "READ")
+
+            assertEquals(Role.READ, service.findRole(snippetId, otroUser))
+        }
+
+        @Test
+        fun `consultar el rol de un usuario sin acceso devuelve null`() {
+            val snippetId = UUID.randomUUID()
+            service.register(snippetId, someUser, "OWNER")
+
+            assertNull(service.findRole(snippetId, "auth0|00000000000000000000000b"))
+        }
+
+        // Tener acceso a un snippet no da acceso a otro: la consulta mira la clave entera
+        @Test
+        fun `el acceso a un snippet no alcanza para otro`() {
+            val suyo = UUID.randomUUID()
+            val ajeno = UUID.randomUUID()
+            service.register(suyo, someUser, "OWNER")
+
+            assertEquals(Role.OWNER, service.findRole(suyo, someUser))
+            assertNull(service.findRole(ajeno, someUser))
+        }
     }

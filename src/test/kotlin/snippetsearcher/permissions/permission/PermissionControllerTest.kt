@@ -7,6 +7,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import snippetsearcher.permissions.TestcontainersConfiguration
 import java.util.UUID
@@ -70,5 +71,42 @@ class PermissionControllerTest(
             }.andExpect {
                 status { isBadRequest() }
             }
+    }
+
+    // Se pasa como variable de template y no interpolado: el "sub" de Auth0 trae "|",
+    // que en una URL va percent-encoded, y asi lo codifica Spring por nosotros.
+    private fun consultar(
+        snippetId: UUID,
+        userId: String = "auth0|65f3a1b2c3d4e5f6a7b8c9d0",
+    ) = mockMvc.get("/permissions/{snippetId}/users/{userId}", snippetId, userId)
+
+    @Test
+    fun `GET permissions devuelve el rol del usuario`() {
+        val snippetId = UUID.randomUUID()
+        registrar(snippetId, "OWNER")
+
+        consultar(snippetId).andExpect {
+            status { isOk() }
+            jsonPath("$.snippetId") { value(snippetId.toString()) }
+            jsonPath("$.role") { value("OWNER") }
+        }
+    }
+
+    @Test
+    fun `GET permissions de un usuario sin acceso responde 404`() {
+        val snippetId = UUID.randomUUID()
+        registrar(snippetId, "OWNER")
+
+        consultar(snippetId, userId = "auth0|00000000000000000000000b").andExpect {
+            status { isNotFound() }
+            jsonPath("$.message") { exists() }
+        }
+    }
+
+    @Test
+    fun `GET permissions de un snippet que nadie registro responde 404`() {
+        consultar(UUID.randomUUID()).andExpect {
+            status { isNotFound() }
+        }
     }
 }
