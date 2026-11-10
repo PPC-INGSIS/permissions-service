@@ -2,6 +2,8 @@ package snippetsearcher.permissions.permission
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
@@ -43,6 +45,19 @@ class PermissionController(
                     ),
                 )
         }
+
+    // El userId es el "sub" de Auth0 y trae caracteres como "|": el cliente lo manda
+    // percent-encoded y Spring lo decodifica antes de que llegue acá.
+    @GetMapping("/{snippetId}/users/{userId}")
+    fun role(
+        @PathVariable snippetId: UUID,
+        @PathVariable userId: String,
+    ): ResponseEntity<out Any> =
+        service.findRole(snippetId, userId)?.let {
+            ResponseEntity.ok(PermissionResponse(snippetId, userId, it))
+        } ?: ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+            ErrorResponse("El usuario no tiene acceso a ese snippet"),
+        )
 }
 
 // El rol viaja como texto y no como Role: si fuera el enum, un valor invalido lo
