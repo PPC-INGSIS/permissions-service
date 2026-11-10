@@ -92,12 +92,12 @@ class PermissionControllerTest(
         }
     }
 
-    // Se pasa como variable de template y no interpolado: el "sub" de Auth0 trae "|",
-    // que en una URL va percent-encoded, y asi lo codifica Spring por nosotros.
     private fun consultar(
-        snippetId: UUID,
+        snippetId: Any,
         userId: String = SOME_USER,
-    ) = mockMvc.get("/permissions/{snippetId}/users/{userId}", snippetId, userId)
+    ) = mockMvc.get("/permissions/{snippetId}", snippetId) {
+        param("userId", userId)
+    }
 
     @Test
     fun `GET permissions devuelve el rol del usuario`() {
@@ -126,6 +126,38 @@ class PermissionControllerTest(
     fun `GET permissions de un snippet que nadie registro responde 404`() {
         consultar(UUID.randomUUID()).andExpect {
             status { isNotFound() }
+        }
+    }
+
+    // La razon de que el userId sea query param: en el path, Tomcat rechaza varios de
+    // estos caracteres por defecto, incluso codificados, y nunca se llegaria al controller
+    @Test
+    fun `GET permissions acepta un userId con caracteres raros`() {
+        val raros = listOf("auth0|abc", "waad|tenant/user", "oidc|user@example.com")
+
+        raros.forEach { userId ->
+            val snippetId = UUID.randomUUID()
+            registrar(snippetId, "READ", userId = userId)
+
+            consultar(snippetId, userId = userId).andExpect {
+                status { isOk() }
+                jsonPath("$.userId") { value(userId) }
+                jsonPath("$.role") { value("READ") }
+            }
+        }
+    }
+
+    @Test
+    fun `GET permissions con un snippetId que no es UUID responde 400`() {
+        consultar("no-es-un-uuid").andExpect {
+            status { isBadRequest() }
+        }
+    }
+
+    @Test
+    fun `GET permissions sin userId responde 400`() {
+        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()).andExpect {
+            status { isBadRequest() }
         }
     }
 
