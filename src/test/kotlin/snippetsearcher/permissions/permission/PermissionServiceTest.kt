@@ -182,6 +182,55 @@ class PermissionServiceTest
             assertNull(service.findRole(ajeno, someUser))
         }
 
+        // Los tests comparten la base, asi que listar "todo lo de un usuario" solo da un
+        // resultado estable si el usuario es nuevo en cada test
+        private fun usuarioNuevo() = "auth0|${UUID.randomUUID()}"
+
+        @Test
+        fun `listar sin rol devuelve todos los accesos del usuario`() {
+            val usuario = usuarioNuevo()
+            val propio = UUID.randomUUID()
+            val compartido = UUID.randomUUID()
+            service.register(propio, usuario, "OWNER")
+            service.register(compartido, usuario, "READ")
+
+            val accesos = service.accessesOf(usuario, null)
+
+            assertEquals(2, accesos.size)
+            assertEquals(setOf(propio, compartido), accesos.map { it.id.snippetId }.toSet())
+        }
+
+        @Test
+        fun `listar con rol filtra`() {
+            val usuario = usuarioNuevo()
+            val propio = UUID.randomUUID()
+            service.register(propio, usuario, "OWNER")
+            service.register(UUID.randomUUID(), usuario, "READ")
+
+            val soloPropios = service.accessesOf(usuario, Role.OWNER)
+
+            assertEquals(1, soloPropios.size)
+            assertEquals(propio, soloPropios.single().id.snippetId)
+        }
+
+        @Test
+        fun `un usuario sin accesos devuelve lista vacia`() {
+            assertEquals(emptyList(), service.accessesOf(usuarioNuevo(), null))
+        }
+
+        // Lo que no tiene que pasar: que el listado de uno traiga los accesos de otro
+        @Test
+        fun `listar no mezcla los accesos de otros usuarios`() {
+            val snippetId = UUID.randomUUID()
+            val duenio = usuarioNuevo()
+            val invitado = usuarioNuevo()
+            service.register(snippetId, duenio, "OWNER")
+            service.register(snippetId, invitado, "READ")
+
+            assertEquals(Role.OWNER, service.accessesOf(duenio, null).single().role)
+            assertEquals(Role.READ, service.accessesOf(invitado, null).single().role)
+        }
+
         private companion object {
             const val TIMEOUT_SEGUNDOS = 10L
         }
