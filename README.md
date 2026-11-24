@@ -1,12 +1,25 @@
 # Permisos
 
+## Autenticación
+
+Todos los endpoints, salvo `/actuator/health`, exigen un token de Auth0 (presentación de Auth0, diap. 48: "validar el token en cada servicio" y "chequear el scope"). La regla sale del método HTTP, igual que en Snippets:
+
+| Pedido | Scope que exige |
+|---|---|
+| `GET` | `read:snippets` |
+| `POST`, `PUT`, `DELETE` | `write:snippets` |
+
+Sin token responde `401`; con un token sin el scope, `403`. Snippets reenvía el token del usuario en cada llamada.
+
+Para correrlo en local hacen falta las variables de Auth0: copiá `.env.example` como `.env` y completalo con los mismos valores que el `.env` de snippet-service.
+
 ## Observabilidad
 
 El servicio manda trazas, metricas y logs a New Relic con el **agente de Java**, segun lo
 decidido en [infraestructura#46](https://github.com/PPC-INGSIS/infraestructura/issues/46).
 
 - El jar del agente **no es una dependencia de la app**: se baja en la configuracion
-  `newrelicAgent` de Gradle y la tarea `copyNewRelicAgent` lo deja en `build/newrelic/`.
+  `newRelicAgent` de Gradle y la tarea `copyNewRelicAgent` lo deja en `build/newrelic/`.
   El Dockerfile lo copia a la imagen y arranca con `-javaagent:/app/newrelic.jar`.
 - `newrelic/newrelic.yml` lleva **valores literales**: el agente no entiende `${VAR}` en
   ese archivo. Lo que cambia por entorno lo pisan las variables `NEW_RELIC_*`, que el
@@ -21,3 +34,4 @@ que un log de Permisos se puede cruzar con la traza del pedido que lo origino.
 
 Sin el agente, la API de New Relic devuelve vacio y no se agrega nada: la app corre igual
 en local y en los tests.
+

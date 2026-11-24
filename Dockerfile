@@ -11,10 +11,10 @@ RUN --mount=type=secret,id=github_token \
     ./gradlew dependencies --no-daemon
 
 COPY src src
-# copyNewRelicAgent deja el jar del agente en build/newrelic/, fuera del classpath
+# bootJar depende de copyNewRelicAgent, que deja el jar del agente en build/newrelic/
 RUN --mount=type=secret,id=github_token \
     GITHUB_ACTOR="$GITHUB_ACTOR" GITHUB_TOKEN="$(cat /run/secrets/github_token)" \
-    ./gradlew bootJar copyNewRelicAgent --no-daemon
+    ./gradlew bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

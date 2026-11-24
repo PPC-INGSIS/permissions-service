@@ -1,10 +1,11 @@
 package snippetsearcher.permissions.observability
 
-import com.newrelic.api.agent.NewRelic
 import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.MDC
+import org.springframework.core.Ordered
+import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
 
@@ -13,27 +14,31 @@ import org.springframework.web.filter.OncePerRequestFilter
  *
  * El MDC es el contexto aparte del mensaje: se carga una vez cuando entra el request y
  * el formato estructurado lo agrega a cada línea sin que nadie lo escriba. Así el
- * mensaje cuenta solo lo que pasó y el "de quién" y "de qué pedido" van al lado.
+ * mensaje cuenta solo lo que pasó y el "de qué pedido" va al lado.
  *
  * El trace id lo genera el agente de New Relic y lo propaga entre servicios, así que es
- * el mismo número que usa Snippets para el pedido que nos llamó. Sin el agente, la API
- * devuelve vacío y no se agrega nada: la app corre igual en local y en los tests.
+ * el mismo número que usa quien nos llamó. Sin el agente no hay id y no se agrega nada:
+ * la app corre igual en local y en los tests.
+ *
+ * Va primero de todos los filtros a propósito: lo que loguee un filtro que corra antes
+ * saldría sin trace id.
  */
 @Component
-class TraceContextFilter : OncePerRequestFilter() {
+@Order(Ordered.HIGHEST_PRECEDENCE)
+class TraceContextFilter(
+    private val traceContext: TraceContext,
+) : OncePerRequestFilter() {
     override fun doFilterInternal(
         request: HttpServletRequest,
         response: HttpServletResponse,
         filterChain: FilterChain,
     ) {
-        val trace = NewRelic.getAgent().traceMetadata
-
         try {
-            trace.traceId.putIfNotBlank(TRACE_ID)
-            trace.spanId.putIfNotBlank(SPAN_ID)
+            traceContext.traceId().putIfNotBlank(TRACE_ID)
+            traceContext.spanId().putIfNotBlank(SPAN_ID)
             filterChain.doFilter(request, response)
         } finally {
-            // Sin esto el contexto queda pegado al thread, y el thread se reutiliza: el
+            // Sin esto el contexto queda pegado al thread, y Tomcat los reutiliza: el
             // próximo pedido loguearía con el trace id del anterior.
             MDC.remove(TRACE_ID)
             MDC.remove(SPAN_ID)
