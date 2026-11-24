@@ -29,6 +29,16 @@ class PermissionService(
     }
 
     /**
+     * Borra todos los accesos de un snippet, el del dueño y los compartidos.
+     *
+     * Devuelve cuantos borro, y 0 no es un error: si el pedido se repite (Snippets reintenta
+     * cuando no llega la respuesta), la segunda vez ya no hay nada que borrar y el resultado
+     * final es el mismo que si se hubiera hecho una sola vez.
+     */
+    @Transactional
+    fun deleteAccessesOf(snippetId: UUID): Int = repository.deleteAllBySnippetId(snippetId)
+
+    /**
      * El rol que tiene ese usuario sobre ese snippet, o null si no tiene ninguno.
      *
      * Null y no un sealed interface: los unicos casos son "tiene un rol" y "no tiene",

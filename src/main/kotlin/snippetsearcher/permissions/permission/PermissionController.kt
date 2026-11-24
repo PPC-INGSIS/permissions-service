@@ -2,6 +2,7 @@ package snippetsearcher.permissions.permission
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -59,6 +60,18 @@ class PermissionController(
         service.findRole(snippetId, userId)?.let {
             ResponseEntity.ok(PermissionResponse(snippetId, userId, it))
         } ?: error(HttpStatus.NOT_FOUND, "El usuario no tiene acceso a ese snippet")
+
+    /**
+     * Borra todos los accesos de un snippet. Responde 204 aunque no hubiera ninguno:
+     * el pedido es idempotente, asi que repetirlo no es un error.
+     */
+    @DeleteMapping("/{snippetId}")
+    fun deleteAccesses(
+        @PathVariable snippetId: UUID,
+    ): ResponseEntity<Void> {
+        service.deleteAccessesOf(snippetId)
+        return ResponseEntity.noContent().build()
+    }
 
     /**
      * Los snippets a los que accede un usuario, con su rol. El `role` filtra y es opcional.

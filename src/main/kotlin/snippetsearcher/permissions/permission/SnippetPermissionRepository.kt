@@ -33,6 +33,18 @@ interface SnippetPermissionRepository : JpaRepository<SnippetPermission, Snippet
         @Param("role") role: String,
     ): Int
 
+    /**
+     * Borra todos los accesos de un snippet y devuelve cuantos borro.
+     *
+     * Un solo DELETE y no deleteBy...: el derivado carga cada fila y las borra de a una.
+     * Usa la clave primaria, que empieza por snippet_id.
+     */
+    @Modifying
+    @Query("DELETE FROM SnippetPermission p WHERE p.id.snippetId = :snippetId")
+    fun deleteAllBySnippetId(
+        @Param("snippetId") snippetId: UUID,
+    ): Int
+
     /** Todos los accesos del usuario. Usa el indice snippet_permission_user. */
     fun findByIdUserId(userId: String): List<SnippetPermission>
 
