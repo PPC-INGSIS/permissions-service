@@ -49,8 +49,9 @@ class SecurityConfigurationTest(
 
     @Test
     fun `un GET con read_snippets pasa la seguridad`() {
-        // Todavía no hay ningún GET: el 405 dice que llegó al controller, o sea que la seguridad lo dejó pasar
-        mockMvc.get("/permissions") { with(readScope) }.andExpect { status { isMethodNotAllowed() } }
+        // GET /permissions existe pero exige userId: el 400 lo pone el controller, no la
+        // seguridad, asi que prueba que el token paso. Un 401 o un 403 serian la falla.
+        mockMvc.get("/permissions") { with(readScope) }.andExpect { status { isBadRequest() } }
     }
 
     @Test

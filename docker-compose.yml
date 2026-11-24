@@ -1,0 +1,16 @@
+services:
+  permissions-db:
+    container_name: permissions-postgres-db
+    image: postgres:18
+    ports:
+      # Solo desde esta máquina, no desde la red. 5434 para no chocar con las otras bases
+      - "127.0.0.1:${DB_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-permissions}
+      POSTGRES_USER: ${POSTGRES_USER:-permissions}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-permissions}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+volumes:
+  postgres-data:

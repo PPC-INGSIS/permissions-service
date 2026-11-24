@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
+import snippetsearcher.permissions.FakeJwtConfiguration
 import snippetsearcher.permissions.TestcontainersConfiguration
 import java.net.URI
 import java.net.URLEncoder
@@ -26,7 +27,7 @@ import kotlin.test.assertTrue
  * y por eso este test pasa por un servidor de verdad.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestcontainersConfiguration::class)
+@Import(TestcontainersConfiguration::class, FakeJwtConfiguration::class)
 class PermissionHttpTest(
     @Autowired private val service: PermissionService,
 ) {
@@ -43,6 +44,7 @@ class PermissionHttpTest(
         val request =
             HttpRequest
                 .newBuilder(URI.create("http://localhost:$port/permissions/$snippetId?userId=$query"))
+                .header("Authorization", "Bearer " + FakeJwtConfiguration.TOKEN)
                 .GET()
                 .build()
         return http.send(request, HttpResponse.BodyHandlers.ofString())

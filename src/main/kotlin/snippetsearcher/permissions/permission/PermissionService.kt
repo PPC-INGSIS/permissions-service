@@ -40,6 +40,23 @@ class PermissionService(
         userId: String,
     ): Role? = repository.findById(SnippetPermissionId(snippetId, userId)).orElse(null)?.role
 
+    /**
+     * Los accesos de un usuario, filtrados por rol si se pide uno.
+     *
+     * Devuelve lista y no null cuando no hay nada: "no accede a ningun snippet" es una
+     * respuesta valida, no la ausencia de una respuesta.
+     */
+    @Transactional(readOnly = true)
+    fun accessesOf(
+        userId: String,
+        role: Role?,
+    ): List<SnippetPermission> =
+        if (role == null) {
+            repository.findByIdUserId(userId)
+        } else {
+            repository.findByIdUserIdAndRole(userId, role)
+        }
+
     /** Por qué no sirve este userId, o null si sirve. Las reglas del userId, juntas. */
     private fun rejectionFor(userId: String): RegisterAccessResult? =
         when {

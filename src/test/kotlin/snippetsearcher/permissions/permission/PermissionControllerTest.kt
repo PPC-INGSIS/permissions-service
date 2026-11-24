@@ -100,6 +100,7 @@ class PermissionControllerTest(
         snippetId: Any,
         userId: String = SOME_USER,
     ) = mockMvc.get("/permissions/{snippetId}", snippetId) {
+        with(readScope)
         param("userId", userId)
     }
 
@@ -160,7 +161,72 @@ class PermissionControllerTest(
 
     @Test
     fun `GET permissions sin userId responde 400`() {
-        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()).andExpect {
+        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()) { with(readScope) }.andExpect {
+            status { isBadRequest() }
+        }
+    }
+
+    // Usuario nuevo por test: la base es compartida y listar "todo lo de un usuario"
+    // solo da un resultado estable si nadie mas lo toco
+    private fun usuarioNuevo() = "auth0|${UUID.randomUUID()}"
+
+    private fun listar(
+        userId: String,
+        role: String? = null,
+    ) = mockMvc.get("/permissions") {
+        with(readScope)
+        param("userId", userId)
+        role?.let { param("role", it) }
+    }
+
+    @Test
+    fun `GET permissions lista los accesos del usuario`() {
+        val usuario = usuarioNuevo()
+        val propio = UUID.randomUUID()
+        registrar(propio, "OWNER", userId = usuario)
+        registrar(UUID.randomUUID(), "READ", userId = usuario)
+
+        listar(usuario).andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(2) }
+        }
+    }
+
+    @Test
+    fun `GET permissions filtra por rol`() {
+        val usuario = usuarioNuevo()
+        val propio = UUID.randomUUID()
+        registrar(propio, "OWNER", userId = usuario)
+        registrar(UUID.randomUUID(), "READ", userId = usuario)
+
+        listar(usuario, role = "OWNER").andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(1) }
+            jsonPath("$[0].snippetId") { value(propio.toString()) }
+            jsonPath("$[0].role") { value("OWNER") }
+        }
+    }
+
+    // Sin accesos no es un error: el usuario existe y la respuesta es "ninguno"
+    @Test
+    fun `GET permissions de un usuario sin accesos responde 200 con lista vacia`() {
+        listar(usuarioNuevo()).andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `GET permissions con un rol que no existe responde 400`() {
+        listar(usuarioNuevo(), role = "ADMIN").andExpect {
+            status { isBadRequest() }
+            jsonPath("$.message") { value("El rol 'ADMIN' no existe. Los validos son: OWNER, READ") }
+        }
+    }
+
+    @Test
+    fun `GET permissions del listado sin userId responde 400`() {
+        mockMvc.get("/permissions") { with(readScope) }.andExpect {
             status { isBadRequest() }
         }
     }
@@ -170,5 +236,8 @@ class PermissionControllerTest(
 
         // Registrar un acceso es escribir: exige write:snippets (la seguridad se prueba en SecurityConfigurationTest)
         val writeScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_write:snippets"))
+
+        // Consultar es leer: exige read:snippets
+        val readScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_read:snippets"))
     }
 }
