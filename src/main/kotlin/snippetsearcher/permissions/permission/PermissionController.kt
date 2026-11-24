@@ -60,6 +60,32 @@ class PermissionController(
             ResponseEntity.ok(PermissionResponse(snippetId, userId, it))
         } ?: error(HttpStatus.NOT_FOUND, "El usuario no tiene acceso a ese snippet")
 
+    /**
+     * Los snippets a los que accede un usuario, con su rol. El `role` filtra y es opcional.
+     *
+     * Sin accesos devuelve una lista vacía, no 404: el usuario existe y la pregunta tiene
+     * respuesta, que es "ninguno".
+     */
+    @GetMapping
+    fun list(
+        @RequestParam userId: String,
+        @RequestParam(required = false) role: String?,
+    ): ResponseEntity<out Any> {
+        // El rol invalido se rechaza acá y no en el service porque es conversion de
+        // entrada, igual que un snippetId que no es UUID: el dominio no llega a verlo.
+        val filtro =
+            if (role == null) {
+                null
+            } else {
+                Role.of(role) ?: return error(
+                    HttpStatus.BAD_REQUEST,
+                    "El rol '$role' no existe. Los validos son: ${Role.entries.joinToString()}",
+                )
+            }
+
+        return ResponseEntity.ok(service.accessesOf(userId, filtro).map { it.toResponse() })
+    }
+
     /** Todas las respuestas de error salen por acá, con la misma forma. */
     private fun error(
         status: HttpStatus,

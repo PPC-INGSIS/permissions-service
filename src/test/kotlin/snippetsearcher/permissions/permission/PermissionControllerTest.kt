@@ -161,6 +161,70 @@ class PermissionControllerTest(
         }
     }
 
+    // Usuario nuevo por test: la base es compartida y listar "todo lo de un usuario"
+    // solo da un resultado estable si nadie mas lo toco
+    private fun usuarioNuevo() = "auth0|${UUID.randomUUID()}"
+
+    private fun listar(
+        userId: String,
+        role: String? = null,
+    ) = mockMvc.get("/permissions") {
+        param("userId", userId)
+        role?.let { param("role", it) }
+    }
+
+    @Test
+    fun `GET permissions lista los accesos del usuario`() {
+        val usuario = usuarioNuevo()
+        val propio = UUID.randomUUID()
+        registrar(propio, "OWNER", userId = usuario)
+        registrar(UUID.randomUUID(), "READ", userId = usuario)
+
+        listar(usuario).andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(2) }
+        }
+    }
+
+    @Test
+    fun `GET permissions filtra por rol`() {
+        val usuario = usuarioNuevo()
+        val propio = UUID.randomUUID()
+        registrar(propio, "OWNER", userId = usuario)
+        registrar(UUID.randomUUID(), "READ", userId = usuario)
+
+        listar(usuario, role = "OWNER").andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(1) }
+            jsonPath("$[0].snippetId") { value(propio.toString()) }
+            jsonPath("$[0].role") { value("OWNER") }
+        }
+    }
+
+    // Sin accesos no es un error: el usuario existe y la respuesta es "ninguno"
+    @Test
+    fun `GET permissions de un usuario sin accesos responde 200 con lista vacia`() {
+        listar(usuarioNuevo()).andExpect {
+            status { isOk() }
+            jsonPath("$.length()") { value(0) }
+        }
+    }
+
+    @Test
+    fun `GET permissions con un rol que no existe responde 400`() {
+        listar(usuarioNuevo(), role = "ADMIN").andExpect {
+            status { isBadRequest() }
+            jsonPath("$.message") { value("El rol 'ADMIN' no existe. Los validos son: OWNER, READ") }
+        }
+    }
+
+    @Test
+    fun `GET permissions del listado sin userId responde 400`() {
+        mockMvc.get("/permissions").andExpect {
+            status { isBadRequest() }
+        }
+    }
+
     private companion object {
         const val SOME_USER = "auth0|65f3a1b2c3d4e5f6a7b8c9d0"
     }

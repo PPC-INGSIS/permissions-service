@@ -32,4 +32,13 @@ interface SnippetPermissionRepository : JpaRepository<SnippetPermission, Snippet
         @Param("userId") userId: String,
         @Param("role") role: String,
     ): Int
+
+    /** Todos los accesos del usuario. Usa el indice snippet_permission_user. */
+    fun findByIdUserId(userId: String): List<SnippetPermission>
+
+    /** Los accesos del usuario con ese rol. */
+    fun findByIdUserIdAndRole(
+        userId: String,
+        role: Role,
+    ): List<SnippetPermission>
 }
