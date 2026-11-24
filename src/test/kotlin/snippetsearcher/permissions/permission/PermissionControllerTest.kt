@@ -100,6 +100,7 @@ class PermissionControllerTest(
         snippetId: Any,
         userId: String = SOME_USER,
     ) = mockMvc.get("/permissions/{snippetId}", snippetId) {
+        with(readScope)
         param("userId", userId)
     }
 
@@ -160,7 +161,7 @@ class PermissionControllerTest(
 
     @Test
     fun `GET permissions sin userId responde 400`() {
-        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()).andExpect {
+        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()) { with(readScope) }.andExpect {
             status { isBadRequest() }
         }
     }
@@ -170,5 +171,8 @@ class PermissionControllerTest(
 
         // Registrar un acceso es escribir: exige write:snippets (la seguridad se prueba en SecurityConfigurationTest)
         val writeScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_write:snippets"))
+
+        // Consultar es leer: exige read:snippets
+        val readScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_read:snippets"))
     }
 }
