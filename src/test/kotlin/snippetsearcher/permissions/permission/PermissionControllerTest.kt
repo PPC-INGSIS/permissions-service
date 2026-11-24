@@ -174,6 +174,7 @@ class PermissionControllerTest(
         userId: String,
         role: String? = null,
     ) = mockMvc.get("/permissions") {
+        with(readScope)
         param("userId", userId)
         role?.let { param("role", it) }
     }
@@ -225,7 +226,7 @@ class PermissionControllerTest(
 
     @Test
     fun `GET permissions del listado sin userId responde 400`() {
-        mockMvc.get("/permissions").andExpect {
+        mockMvc.get("/permissions") { with(readScope) }.andExpect {
             status { isBadRequest() }
         }
     }
