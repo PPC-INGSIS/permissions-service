@@ -6,6 +6,8 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
+import org.springframework.security.core.authority.SimpleGrantedAuthority
+import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.post
 import snippetsearcher.permissions.TestcontainersConfiguration
@@ -28,6 +30,7 @@ class PermissionControllerTest(
         role: String,
         userId: String = SOME_USER,
     ) = mockMvc.post("/permissions") {
+        with(writeScope)
         contentType = MediaType.APPLICATION_JSON
         content = body(snippetId, role, userId)
     }
@@ -66,6 +69,7 @@ class PermissionControllerTest(
     fun `POST permissions sin cuerpo responde 400`() {
         mockMvc
             .post("/permissions") {
+                with(writeScope)
                 contentType = MediaType.APPLICATION_JSON
             }.andExpect {
                 status { isBadRequest() }
@@ -93,5 +97,8 @@ class PermissionControllerTest(
 
     private companion object {
         const val SOME_USER = "auth0|65f3a1b2c3d4e5f6a7b8c9d0"
+
+        // Registrar un acceso es escribir: exige write:snippets (la seguridad se prueba en SecurityConfigurationTest)
+        val writeScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_write:snippets"))
     }
 }
