@@ -1,5 +1,6 @@
 package snippetsearcher.permissions.permission
 
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.util.UUID
@@ -8,6 +9,10 @@ import java.util.UUID
 class PermissionService(
     private val repository: SnippetPermissionRepository,
 ) {
+    // Se loguean los cambios de estado (quién ganó o perdió acceso), no las consultas: esas son
+    // lecturas de cada pedido y llenarían los logs sin decir nada. Sale con el trace id del agente.
+    private val log = LoggerFactory.getLogger(javaClass)
+
     // El duplicado lo decide la base en un solo statement, no un chequeo previo: ver
     // insertIfAbsent.
     @Transactional
@@ -25,6 +30,8 @@ class PermissionService(
             return RegisterAccessResult.AlreadyRegistered
         }
 
+        // El userId es el sub de Auth0: un identificador opaco, no el mail ni el nombre
+        log.info("Acceso {} registrado: snippet {}, usuario {}", parsedRole, snippetId, userId)
         return RegisterAccessResult.Registered(SnippetPermission(id, parsedRole))
     }
 
@@ -36,7 +43,11 @@ class PermissionService(
      * final es el mismo que si se hubiera hecho una sola vez.
      */
     @Transactional
-    fun deleteAccessesOf(snippetId: UUID): Int = repository.deleteAllBySnippetId(snippetId)
+    fun deleteAccessesOf(snippetId: UUID): Int {
+        val deleted = repository.deleteAllBySnippetId(snippetId)
+        log.info("Borrados {} accesos del snippet {}", deleted, snippetId)
+        return deleted
+    }
 
     /**
      * El rol que tiene ese usuario sobre ese snippet, o null si no tiene ninguno.
