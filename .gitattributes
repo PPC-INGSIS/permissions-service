@@ -1,0 +1,4 @@
+# gradlew corre adentro de contenedores Linux (el Dockerfile lo invoca con /bin/sh).
+# Con CRLF el shebang queda "#!/bin/sh", que no existe, y el build falla con
+# "./gradlew: not found". Solo se nota en Windows: CI y las VMs son Linux.
+gradlew text eol=lf

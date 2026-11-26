@@ -1,0 +1,127 @@
+package snippetsearcher.permissions.permission
+
+import org.springframework.http.HttpStatus
+import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.RestController
+import java.util.UUID
+
+@RestController
+@RequestMapping("/permissions")
+class PermissionController(
+    private val service: PermissionService,
+) {
+    @PostMapping
+    fun register(
+        @RequestBody request: RegisterAccessRequest,
+    ): ResponseEntity<out Any> =
+        when (val result = service.register(request.snippetId, request.userId, request.role)) {
+            is RegisterAccessResult.Registered ->
+                ResponseEntity.status(HttpStatus.CREATED).body(result.permission.toResponse())
+
+            is RegisterAccessResult.AlreadyRegistered ->
+                error(HttpStatus.CONFLICT, "El usuario ya tiene un rol sobre ese snippet")
+
+            // Los validos salen del enum: agregar un rol no deja este mensaje viejo
+            is RegisterAccessResult.InvalidRole ->
+                error(
+                    HttpStatus.BAD_REQUEST,
+                    "El rol '${result.role}' no existe. Los validos son: ${Role.entries.joinToString()}",
+                )
+
+            is RegisterAccessResult.BlankUserId ->
+                error(HttpStatus.BAD_REQUEST, "Falta el userId")
+
+            is RegisterAccessResult.UserIdTooLong ->
+                error(
+                    HttpStatus.BAD_REQUEST,
+                    "El userId no puede superar los ${SnippetPermissionId.MAX_USER_ID_LENGTH} caracteres",
+                )
+        }
+
+    /**
+     * El userId va como query param y no en el path a proposito.
+     *
+     * Es el "sub" de Auth0: un String opaco que puede traer "|", "/" o "@" segun el
+     * proveedor. Tomcat rechaza varios de esos caracteres en el path por defecto —
+     * incluso codificados, como %2F— y devolveria 400 antes de llegar hasta aca.
+     */
+    @GetMapping("/{snippetId}")
+    fun role(
+        @PathVariable snippetId: UUID,
+        @RequestParam userId: String,
+    ): ResponseEntity<out Any> =
+        service.findRole(snippetId, userId)?.let {
+            ResponseEntity.ok(PermissionResponse(snippetId, userId, it))
+        } ?: error(HttpStatus.NOT_FOUND, "El usuario no tiene acceso a ese snippet")
+
+    /**
+     * Borra todos los accesos de un snippet. Responde 204 aunque no hubiera ninguno:
+     * el pedido es idempotente, asi que repetirlo no es un error.
+     */
+    @DeleteMapping("/{snippetId}")
+    fun deleteAccesses(
+        @PathVariable snippetId: UUID,
+    ): ResponseEntity<Void> {
+        service.deleteAccessesOf(snippetId)
+        return ResponseEntity.noContent().build()
+    }
+
+    /**
+     * Los snippets a los que accede un usuario, con su rol. El `role` filtra y es opcional.
+     *
+     * Sin accesos devuelve una lista vacía, no 404: el usuario existe y la pregunta tiene
+     * respuesta, que es "ninguno".
+     */
+    @GetMapping
+    fun list(
+        @RequestParam userId: String,
+        @RequestParam(required = false) role: String?,
+    ): ResponseEntity<out Any> {
+        // El rol invalido se rechaza acá y no en el service porque es conversion de
+        // entrada, igual que un snippetId que no es UUID: el dominio no llega a verlo.
+        val filtro =
+            if (role == null) {
+                null
+            } else {
+                Role.of(role) ?: return error(
+                    HttpStatus.BAD_REQUEST,
+                    "El rol '$role' no existe. Los validos son: ${Role.entries.joinToString()}",
+                )
+            }
+
+        return ResponseEntity.ok(service.accessesOf(userId, filtro).map { it.toResponse() })
+    }
+
+    /** Todas las respuestas de error salen por acá, con la misma forma. */
+    private fun error(
+        status: HttpStatus,
+        message: String,
+    ): ResponseEntity<ErrorResponse> = ResponseEntity.status(status).body(ErrorResponse(message))
+}
+
+// El rol viaja como texto y no como Role: si fuera el enum, un valor invalido lo
+// rechazaria Jackson con una excepcion y el caso dejaria de ser un resultado.
+data class RegisterAccessRequest(
+    val snippetId: UUID,
+    val userId: String,
+    val role: String,
+)
+
+data class PermissionResponse(
+    val snippetId: UUID,
+    val userId: String,
+    val role: Role,
+)
+
+data class ErrorResponse(
+    val message: String,
+)
+
+private fun SnippetPermission.toResponse() = PermissionResponse(id.snippetId, id.userId, role)

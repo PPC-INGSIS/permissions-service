@@ -1,0 +1,48 @@
+# Configuración del agente de Java de New Relic. Se copia a la imagen al lado del jar.
+# Lo secreto y lo que cambia por entorno llega por variables NEW_RELIC_*, que define
+# stack.yml. Acá no hay ninguna key.
+# Ojo: el agente NO entiende ${VAR} ni ${VAR:default} en este archivo. Lo deja como
+# texto literal, y un agent_enabled que no sea "true" lo toma como false. Por eso acá
+# van valores literales: lo que cambia por entorno lo pisan las variables NEW_RELIC_*,
+# que el agente lee solo (NEW_RELIC_APP_NAME, NEW_RELIC_LICENSE_KEY, etc.).
+common: &default_settings
+  # El ambiente va en el nombre (permissions-dev, permissions-prod) para no mezclarlos.
+  # Este valor es el de local; stack.yml pisa NEW_RELIC_APP_NAME en dev y prod.
+  app_name: permissions-local
+
+  # Prendido por defecto, que es lo que hace falta en las VMs. El compose de local
+  # manda NEW_RELIC_AGENT_ENABLED=false, así que desarrollando queda apagado.
+  agent_enabled: true
+
+  # A stdout y no a un archivo: el contenedor corre con un usuario sin permiso de
+  # escritura en /app, y los logs de un contenedor van a stdout de todos modos.
+  log_file_name: STDOUT
+  log_level: info
+
+  # Lo que hace que el tramo de Permisos aparezca dentro de la traza de Snippets:
+  # el agente propaga el trace id en los headers de las llamadas entre servicios.
+  distributed_tracing:
+    enabled: true
+
+  application_logging:
+    enabled: true
+    # Manda los logs a New Relic sin un recolector aparte
+    forwarding:
+      enabled: true
+      max_samples_stored: 10000
+    # Apagado a propósito: agrega texto al final de cada línea y nos rompería el JSON.
+    # El trace id ya va adentro del JSON, puesto por TraceContextFilter.
+    local_decorating:
+      enabled: false
+    metrics:
+      enabled: true
+
+  # No mandar los valores de los parámetros: pueden traer datos de usuarios
+  attributes:
+    enabled: true
+    exclude:
+      - request.headers.*
+      - request.parameters.*
+
+production:
+  <<: *default_settings
