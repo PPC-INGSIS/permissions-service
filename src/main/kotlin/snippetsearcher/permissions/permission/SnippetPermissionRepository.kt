@@ -45,6 +45,17 @@ interface SnippetPermissionRepository : JpaRepository<SnippetPermission, Snippet
         @Param("snippetId") snippetId: UUID,
     ): Int
 
+    /**
+     * El acceso de rol OWNER de ese snippet, o null si todavia no tiene dueno.
+     *
+     * Pega sobre el prefijo de la clave primaria (snippet_id), asi que usa el indice de la PK.
+     * Es lo que permite autorizar sin saber nada de snippets: el dueno esta en esta tabla.
+     */
+    fun findByIdSnippetIdAndRole(
+        snippetId: UUID,
+        role: Role,
+    ): SnippetPermission?
+
     /** Todos los accesos del usuario. Usa el indice snippet_permission_user. */
     fun findByIdUserId(userId: String): List<SnippetPermission>
 

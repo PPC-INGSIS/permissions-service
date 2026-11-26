@@ -31,8 +31,10 @@ class PermissionServiceLogTest
         fun `registrar un acceso nuevo deja un INFO con el rol, el snippet y el usuario`() {
             val snippetId = UUID.randomUUID()
             val usuario = "auth0|log-registrar"
+            val dueno = "auth0|log-registrar-dueno"
+            service.register(dueno, snippetId, dueno, "OWNER")
 
-            val logs = infosDuring { service.register(snippetId, usuario, "READ") }
+            val logs = infosDuring { service.register(dueno, snippetId, usuario, "READ") }
 
             assertEquals("Acceso READ registrado: snippet $snippetId, usuario $usuario", logs.single())
         }
@@ -41,9 +43,9 @@ class PermissionServiceLogTest
         @Test
         fun `registrar un acceso que ya existe no loguea`() {
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, "auth0|log-duplicado", "OWNER")
+            service.register("auth0|log-duplicado", snippetId, "auth0|log-duplicado", "OWNER")
 
-            val logs = infosDuring { service.register(snippetId, "auth0|log-duplicado", "READ") }
+            val logs = infosDuring { service.register("auth0|log-duplicado", snippetId, "auth0|log-duplicado", "READ") }
 
             assertTrue(logs.isEmpty())
         }
@@ -51,10 +53,11 @@ class PermissionServiceLogTest
         @Test
         fun `borrar los accesos de un snippet deja un INFO con cuantos borro`() {
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, "auth0|log-borrar-ana", "OWNER")
-            service.register(snippetId, "auth0|log-borrar-beto", "READ")
+            val ana = "auth0|log-borrar-ana"
+            service.register(ana, snippetId, ana, "OWNER")
+            service.register(ana, snippetId, "auth0|log-borrar-beto", "READ")
 
-            val logs = infosDuring { service.deleteAccessesOf(snippetId) }
+            val logs = infosDuring { service.deleteAccessesOf(ana, snippetId) }
 
             assertEquals("Borrados 2 accesos del snippet $snippetId", logs.single())
         }

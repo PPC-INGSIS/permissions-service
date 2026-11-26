@@ -27,12 +27,19 @@ class PermissionControllerTest(
         userId: String = SOME_USER,
     ) = """{"snippetId":"$snippetId","userId":"$userId","role":"$role"}"""
 
+    /**
+     * Registra un acceso. `caller` es quien pide: por default, el mismo usuario del acceso.
+     *
+     * Para un OWNER eso es lo correcto —uno se registra a si mismo—; para un READ hay que pasar al
+     * dueno del snippet, que es el unico que puede compartir.
+     */
     private fun registrar(
         snippetId: UUID,
         role: String,
         userId: String = SOME_USER,
+        caller: String = userId,
     ) = mockMvc.post("/permissions") {
-        with(writeScope)
+        with(escribiendo(caller))
         contentType = MediaType.APPLICATION_JSON
         content = body(snippetId, role, userId)
     }
@@ -53,7 +60,7 @@ class PermissionControllerTest(
         val snippetId = UUID.randomUUID()
         registrar(snippetId, "OWNER")
 
-        registrar(snippetId, "READ").andExpect {
+        registrar(snippetId, "READ", caller = SOME_USER).andExpect {
             status { isConflict() }
             jsonPath("$.message") { exists() }
         }
@@ -71,7 +78,7 @@ class PermissionControllerTest(
     fun `POST permissions sin cuerpo responde 400`() {
         mockMvc
             .post("/permissions") {
-                with(writeScope)
+                with(escribiendo(SOME_USER))
                 contentType = MediaType.APPLICATION_JSON
             }.andExpect {
                 status { isBadRequest() }
@@ -97,11 +104,12 @@ class PermissionControllerTest(
         }
     }
 
+    // Se consulta como el propio userId: solo se puede preguntar por los accesos de uno mismo
     private fun consultar(
         snippetId: Any,
         userId: String = SOME_USER,
     ) = mockMvc.get("/permissions/{snippetId}", snippetId) {
-        with(readScope)
+        with(leyendo(userId))
         param("userId", userId)
     }
 
@@ -143,7 +151,8 @@ class PermissionControllerTest(
 
         raros.forEach { userId ->
             val snippetId = UUID.randomUUID()
-            registrar(snippetId, "READ", userId = userId)
+            registrar(snippetId, "OWNER")
+            registrar(snippetId, "READ", userId = userId, caller = SOME_USER)
 
             consultar(snippetId, userId = userId).andExpect {
                 status { isOk() }
@@ -162,7 +171,7 @@ class PermissionControllerTest(
 
     @Test
     fun `GET permissions sin userId responde 400`() {
-        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()) { with(readScope) }.andExpect {
+        mockMvc.get("/permissions/{snippetId}", UUID.randomUUID()) { with(leyendo(SOME_USER)) }.andExpect {
             status { isBadRequest() }
         }
     }
@@ -175,7 +184,7 @@ class PermissionControllerTest(
         userId: String,
         role: String? = null,
     ) = mockMvc.get("/permissions") {
-        with(readScope)
+        with(leyendo(userId))
         param("userId", userId)
         role?.let { param("role", it) }
     }
@@ -184,8 +193,11 @@ class PermissionControllerTest(
     fun `GET permissions lista los accesos del usuario`() {
         val usuario = usuarioNuevo()
         val propio = UUID.randomUUID()
+        val compartido = UUID.randomUUID()
+        val otroDueno = usuarioNuevo()
         registrar(propio, "OWNER", userId = usuario)
-        registrar(UUID.randomUUID(), "READ", userId = usuario)
+        registrar(compartido, "OWNER", userId = otroDueno)
+        registrar(compartido, "READ", userId = usuario, caller = otroDueno)
 
         listar(usuario).andExpect {
             status { isOk() }
@@ -197,8 +209,11 @@ class PermissionControllerTest(
     fun `GET permissions filtra por rol`() {
         val usuario = usuarioNuevo()
         val propio = UUID.randomUUID()
+        val compartido = UUID.randomUUID()
+        val otroDueno = usuarioNuevo()
         registrar(propio, "OWNER", userId = usuario)
-        registrar(UUID.randomUUID(), "READ", userId = usuario)
+        registrar(compartido, "OWNER", userId = otroDueno)
+        registrar(compartido, "READ", userId = usuario, caller = otroDueno)
 
         listar(usuario, role = "OWNER").andExpect {
             status { isOk() }
@@ -227,7 +242,7 @@ class PermissionControllerTest(
 
     @Test
     fun `GET permissions del listado sin userId responde 400`() {
-        mockMvc.get("/permissions") { with(readScope) }.andExpect {
+        mockMvc.get("/permissions") { with(leyendo(SOME_USER)) }.andExpect {
             status { isBadRequest() }
         }
     }
@@ -237,16 +252,16 @@ class PermissionControllerTest(
         val snippetId = UUID.randomUUID()
         val invitado = "auth0|invitado"
         registrar(snippetId, "OWNER")
-        registrar(snippetId, "READ", invitado)
+        registrar(snippetId, "READ", invitado, caller = SOME_USER)
 
-        mockMvc.delete("/permissions/{snippetId}", snippetId) { with(writeScope) }.andExpect {
+        mockMvc.delete("/permissions/{snippetId}", snippetId) { with(escribiendo(SOME_USER)) }.andExpect {
             status { isNoContent() }
         }
 
         for (userId in listOf(SOME_USER, invitado)) {
             mockMvc
                 .get("/permissions/{snippetId}", snippetId) {
-                    with(readScope)
+                    with(leyendo(userId))
                     param("userId", userId)
                 }.andExpect { status { isNotFound() } }
         }
@@ -259,25 +274,25 @@ class PermissionControllerTest(
         registrar(borrado, "OWNER")
         registrar(otro, "OWNER")
 
-        mockMvc.delete("/permissions/{snippetId}", borrado) { with(writeScope) }
+        mockMvc.delete("/permissions/{snippetId}", borrado) { with(escribiendo(SOME_USER)) }
 
         mockMvc
             .get("/permissions/{snippetId}", otro) {
-                with(readScope)
+                with(leyendo(SOME_USER))
                 param("userId", SOME_USER)
             }.andExpect { status { isOk() } }
     }
 
     @Test
     fun `DELETE permissions de un snippet sin accesos responde 204`() {
-        mockMvc.delete("/permissions/{snippetId}", UUID.randomUUID()) { with(writeScope) }.andExpect {
+        mockMvc.delete("/permissions/{snippetId}", UUID.randomUUID()) { with(escribiendo(SOME_USER)) }.andExpect {
             status { isNoContent() }
         }
     }
 
     @Test
     fun `DELETE permissions con un id que no es UUID responde 400`() {
-        mockMvc.delete("/permissions/no-es-un-uuid") { with(writeScope) }.andExpect {
+        mockMvc.delete("/permissions/no-es-un-uuid") { with(escribiendo(SOME_USER)) }.andExpect {
             status { isBadRequest() }
         }
     }
@@ -285,10 +300,14 @@ class PermissionControllerTest(
     private companion object {
         const val SOME_USER = "auth0|65f3a1b2c3d4e5f6a7b8c9d0"
 
+        // El sub del token es quien pide, y Permisos autoriza con eso: ya no alcanza un token generico
+
         // Registrar un acceso es escribir: exige write:snippets (la seguridad se prueba en SecurityConfigurationTest)
-        val writeScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_write:snippets"))
+        fun escribiendo(sub: String) =
+            jwt().jwt { it.subject(sub) }.authorities(SimpleGrantedAuthority("SCOPE_write:snippets"))
 
         // Consultar es leer: exige read:snippets
-        val readScope = jwt().authorities(SimpleGrantedAuthority("SCOPE_read:snippets"))
+        fun leyendo(sub: String) =
+            jwt().jwt { it.subject(sub) }.authorities(SimpleGrantedAuthority("SCOPE_read:snippets"))
     }
 }

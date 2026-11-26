@@ -28,7 +28,7 @@ class PermissionServiceTest
         fun `registrar un acceso nuevo lo deja guardado`() {
             val snippetId = UUID.randomUUID()
 
-            val result = service.register(snippetId, someUser, "OWNER")
+            val result = service.register(someUser, snippetId, someUser, "OWNER")
 
             assertIs<RegisterAccessResult.Registered>(result)
             assertEquals(Role.OWNER, result.permission.role)
@@ -38,9 +38,9 @@ class PermissionServiceTest
         @Test
         fun `registrar el mismo acceso dos veces no lo duplica`() {
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, someUser, "OWNER")
+            service.register(someUser, snippetId, someUser, "OWNER")
 
-            val result = service.register(snippetId, someUser, "READ")
+            val result = service.register(someUser, snippetId, someUser, "READ")
 
             assertIs<RegisterAccessResult.AlreadyRegistered>(result)
             // El rol original no se pisa
@@ -51,7 +51,7 @@ class PermissionServiceTest
         fun `un rol que no existe no se guarda`() {
             val snippetId = UUID.randomUUID()
 
-            val result = service.register(snippetId, someUser, "ADMIN")
+            val result = service.register(someUser, snippetId, someUser, "ADMIN")
 
             assertIs<RegisterAccessResult.InvalidRole>(result)
             assertEquals("ADMIN", result.role)
@@ -64,8 +64,11 @@ class PermissionServiceTest
             val primero = UUID.randomUUID()
             val segundo = UUID.randomUUID()
 
-            service.register(primero, someUser, "OWNER")
-            val result = service.register(segundo, someUser, "READ")
+            val otroDueno = usuarioNuevo()
+            service.register(someUser, primero, someUser, "OWNER")
+            // El segundo es de otro, que se lo comparte: un usuario accede a snippets propios y ajenos
+            service.register(otroDueno, segundo, otroDueno, "OWNER")
+            val result = service.register(otroDueno, segundo, someUser, "READ")
 
             assertIs<RegisterAccessResult.Registered>(result)
             assertEquals(Role.OWNER, repository.findById(SnippetPermissionId(primero, someUser)).get().role)
@@ -77,8 +80,8 @@ class PermissionServiceTest
             val snippetId = UUID.randomUUID()
             val otroUser = "auth0|00000000000000000000000a"
 
-            service.register(snippetId, someUser, "OWNER")
-            val result = service.register(snippetId, otroUser, "READ")
+            service.register(someUser, snippetId, someUser, "OWNER")
+            val result = service.register(someUser, snippetId, otroUser, "READ")
 
             assertIs<RegisterAccessResult.Registered>(result)
             assertEquals(Role.READ, repository.findById(SnippetPermissionId(snippetId, otroUser)).get().role)
@@ -96,7 +99,7 @@ class PermissionServiceTest
         fun `un userId vacio no se guarda`() {
             val snippetId = UUID.randomUUID()
 
-            assertIs<RegisterAccessResult.BlankUserId>(service.register(snippetId, "   ", "OWNER"))
+            assertIs<RegisterAccessResult.BlankUserId>(service.register(someUser, snippetId, "   ", "OWNER"))
             assertEquals(false, repository.existsById(SnippetPermissionId(snippetId, "   ")))
         }
 
@@ -104,7 +107,7 @@ class PermissionServiceTest
         fun `un userId mas largo que la columna no se guarda`() {
             val largo = "a".repeat(SnippetPermissionId.MAX_USER_ID_LENGTH + 1)
 
-            val result = service.register(UUID.randomUUID(), largo, "OWNER")
+            val result = service.register(largo, UUID.randomUUID(), largo, "OWNER")
 
             assertIs<RegisterAccessResult.UserIdTooLong>(result)
         }
@@ -130,7 +133,7 @@ class PermissionServiceTest
                         Callable {
                             listos.countDown()
                             largada.await()
-                            service.register(snippetId, someUser, "OWNER")
+                            service.register(someUser, snippetId, someUser, "OWNER")
                         },
                     )
                 }
@@ -149,7 +152,7 @@ class PermissionServiceTest
         @Test
         fun `consultar el rol del dueno devuelve OWNER`() {
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, someUser, "OWNER")
+            service.register(someUser, snippetId, someUser, "OWNER")
 
             assertEquals(Role.OWNER, service.findRole(snippetId, someUser))
         }
@@ -158,7 +161,8 @@ class PermissionServiceTest
         fun `consultar el rol de alguien con quien se compartio devuelve READ`() {
             val snippetId = UUID.randomUUID()
             val otroUser = "auth0|00000000000000000000000a"
-            service.register(snippetId, otroUser, "READ")
+            service.register(someUser, snippetId, someUser, "OWNER")
+            service.register(someUser, snippetId, otroUser, "READ")
 
             assertEquals(Role.READ, service.findRole(snippetId, otroUser))
         }
@@ -166,7 +170,7 @@ class PermissionServiceTest
         @Test
         fun `consultar el rol de un usuario sin acceso devuelve null`() {
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, someUser, "OWNER")
+            service.register(someUser, snippetId, someUser, "OWNER")
 
             assertNull(service.findRole(snippetId, "auth0|00000000000000000000000b"))
         }
@@ -176,7 +180,7 @@ class PermissionServiceTest
         fun `el acceso a un snippet no alcanza para otro`() {
             val suyo = UUID.randomUUID()
             val ajeno = UUID.randomUUID()
-            service.register(suyo, someUser, "OWNER")
+            service.register(someUser, suyo, someUser, "OWNER")
 
             assertEquals(Role.OWNER, service.findRole(suyo, someUser))
             assertNull(service.findRole(ajeno, someUser))
@@ -191,8 +195,10 @@ class PermissionServiceTest
             val usuario = usuarioNuevo()
             val propio = UUID.randomUUID()
             val compartido = UUID.randomUUID()
-            service.register(propio, usuario, "OWNER")
-            service.register(compartido, usuario, "READ")
+            val otroDueno = usuarioNuevo()
+            service.register(usuario, propio, usuario, "OWNER")
+            service.register(otroDueno, compartido, otroDueno, "OWNER")
+            service.register(otroDueno, compartido, usuario, "READ")
 
             val accesos = service.accessesOf(usuario, null)
 
@@ -204,8 +210,11 @@ class PermissionServiceTest
         fun `listar con rol filtra`() {
             val usuario = usuarioNuevo()
             val propio = UUID.randomUUID()
-            service.register(propio, usuario, "OWNER")
-            service.register(UUID.randomUUID(), usuario, "READ")
+            val compartido = UUID.randomUUID()
+            val otroDueno = usuarioNuevo()
+            service.register(usuario, propio, usuario, "OWNER")
+            service.register(otroDueno, compartido, otroDueno, "OWNER")
+            service.register(otroDueno, compartido, usuario, "READ")
 
             val soloPropios = service.accessesOf(usuario, Role.OWNER)
 
@@ -224,8 +233,8 @@ class PermissionServiceTest
             val snippetId = UUID.randomUUID()
             val duenio = usuarioNuevo()
             val invitado = usuarioNuevo()
-            service.register(snippetId, duenio, "OWNER")
-            service.register(snippetId, invitado, "READ")
+            service.register(duenio, snippetId, duenio, "OWNER")
+            service.register(duenio, snippetId, invitado, "READ")
 
             assertEquals(Role.OWNER, service.accessesOf(duenio, null).single().role)
             assertEquals(Role.READ, service.accessesOf(invitado, null).single().role)
@@ -236,12 +245,12 @@ class PermissionServiceTest
             val snippetId = UUID.randomUUID()
             val duenio = usuarioNuevo()
             val invitado = usuarioNuevo()
-            service.register(snippetId, duenio, "OWNER")
-            service.register(snippetId, invitado, "READ")
+            service.register(duenio, snippetId, duenio, "OWNER")
+            service.register(duenio, snippetId, invitado, "READ")
 
-            val borrados = service.deleteAccessesOf(snippetId)
+            val result = service.deleteAccessesOf(duenio, snippetId)
 
-            assertEquals(2, borrados)
+            assertEquals(2, assertIs<DeleteAccessesResult.Deleted>(result).count)
             assertNull(service.findRole(snippetId, duenio))
             assertNull(service.findRole(snippetId, invitado))
         }
@@ -252,10 +261,10 @@ class PermissionServiceTest
             val borrado = UUID.randomUUID()
             val otro = UUID.randomUUID()
             val duenio = usuarioNuevo()
-            service.register(borrado, duenio, "OWNER")
-            service.register(otro, duenio, "OWNER")
+            service.register(duenio, borrado, duenio, "OWNER")
+            service.register(duenio, otro, duenio, "OWNER")
 
-            service.deleteAccessesOf(borrado)
+            service.deleteAccessesOf(duenio, borrado)
 
             assertEquals(Role.OWNER, service.findRole(otro, duenio))
         }
@@ -264,10 +273,12 @@ class PermissionServiceTest
         @Test
         fun `borrar los accesos de un snippet sin accesos devuelve cero`() {
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, usuarioNuevo(), "OWNER")
-            service.deleteAccessesOf(snippetId)
+            val duenio = usuarioNuevo()
+            service.register(duenio, snippetId, duenio, "OWNER")
+            service.deleteAccessesOf(duenio, snippetId)
 
-            assertEquals(0, service.deleteAccessesOf(snippetId))
+            // Sigue siendo idempotente: sin dueño no hay nada que borrar, y eso no es falta de permisos
+            assertEquals(0, assertIs<DeleteAccessesResult.Deleted>(service.deleteAccessesOf(duenio, snippetId)).count)
         }
 
         private companion object {

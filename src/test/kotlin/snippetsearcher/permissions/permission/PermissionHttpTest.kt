@@ -6,6 +6,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import snippetsearcher.permissions.FakeJwtConfiguration
+import snippetsearcher.permissions.FakeJwtSubject
 import snippetsearcher.permissions.TestcontainersConfiguration
 import java.net.URI
 import java.net.URLEncoder
@@ -30,16 +31,20 @@ import kotlin.test.assertTrue
 @Import(TestcontainersConfiguration::class, FakeJwtConfiguration::class)
 class PermissionHttpTest(
     @Autowired private val service: PermissionService,
+    @Autowired private val jwtSubject: FakeJwtSubject,
 ) {
     @LocalServerPort
     private var port: Int = 0
 
     private val http: HttpClient = HttpClient.newHttpClient()
 
+    /** Consulta como el propio `userId`: el token es el sub (ver FakeJwtConfiguration). */
     private fun consultar(
         snippetId: UUID,
         userId: String,
     ): HttpResponse<String> {
+        // Se consulta como el propio userId: el sub no puede viajar en el token, así que se elige acá
+        jwtSubject.value = userId
         val query = URLEncoder.encode(userId, StandardCharsets.UTF_8)
         val request =
             HttpRequest
@@ -57,7 +62,7 @@ class PermissionHttpTest(
 
         raros.forEach { userId ->
             val snippetId = UUID.randomUUID()
-            service.register(snippetId, userId, "OWNER")
+            service.register(userId, snippetId, userId, "OWNER")
 
             val response = consultar(snippetId, userId)
 
@@ -70,7 +75,7 @@ class PermissionHttpTest(
     @Test
     fun `un usuario sin acceso responde 404 contra el servidor real`() {
         val snippetId = UUID.randomUUID()
-        service.register(snippetId, "auth0|dueno", "OWNER")
+        service.register("auth0|dueno", snippetId, "auth0|dueno", "OWNER")
 
         val response = consultar(snippetId, "auth0|otro")
 

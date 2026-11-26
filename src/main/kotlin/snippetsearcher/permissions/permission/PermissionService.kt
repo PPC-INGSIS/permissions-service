@@ -17,13 +17,14 @@ class PermissionService(
     // insertIfAbsent.
     @Transactional
     fun register(
+        callerId: String,
         snippetId: UUID,
         userId: String,
         role: String,
     ): RegisterAccessResult {
-        rejectionFor(userId)?.let { return it }
-
         val parsedRole = Role.of(role) ?: return RegisterAccessResult.InvalidRole(role)
+        rejectionFor(callerId, snippetId, userId, parsedRole)?.let { return it }
+
         val id = SnippetPermissionId(snippetId, userId)
 
         if (repository.insertIfAbsent(snippetId, userId, parsedRole.name) == 0) {
@@ -43,10 +44,19 @@ class PermissionService(
      * final es el mismo que si se hubiera hecho una sola vez.
      */
     @Transactional
-    fun deleteAccessesOf(snippetId: UUID): Int {
+    fun deleteAccessesOf(
+        callerId: String,
+        snippetId: UUID,
+    ): DeleteAccessesResult {
+        // Solo se rechaza si el snippet tiene OTRO dueño. Sin dueño no hay nada que borrar, y eso no
+        // es una falla de permisos: es el reintento de Snippets llegando después de un borrado que
+        // sí se hizo, y tiene que seguir siendo idempotente como era antes
+        val dueno = ownerOf(snippetId)
+        if (dueno != null && dueno != callerId) return DeleteAccessesResult.NotOwner
+
         val deleted = repository.deleteAllBySnippetId(snippetId)
         log.info("Borrados {} accesos del snippet {}", deleted, snippetId)
-        return deleted
+        return DeleteAccessesResult.Deleted(deleted)
     }
 
     /**
@@ -78,11 +88,48 @@ class PermissionService(
             repository.findByIdUserIdAndRole(userId, role)
         }
 
-    /** Por qué no sirve este userId, o null si sirve. Las reglas del userId, juntas. */
-    private fun rejectionFor(userId: String): RegisterAccessResult? =
+    /**
+     * Quién puede registrar qué acceso, decidido con esta misma tabla y nada más.
+     *
+     * - **OWNER**: solo para uno mismo (`userId == callerId`) y solo si el snippet no tiene otro
+     *   dueño. Sin la segunda condición, cualquiera podía registrarse como dueño de un snippet
+     *   ajeno —la clave es (snippet, usuario), así que no choca con el dueño real— y quedarse con
+     *   todo lo que puede hacer un dueño.
+     * - **READ** (compartir): solo el dueño del snippet puede dar acceso de lectura a otro.
+     *
+     * Que el dueño siga siendo dueño vale como permitido: Snippets reintenta registrar al dueño
+     * cuando no le llega la respuesta, y ese reintento tiene que seguir funcionando.
+     *
+     * No hace falta saber nada de snippets para esto: el dueño está en esta tabla, en la fila con
+     * rol OWNER. Es lo que hace que la regla viva acá y no duplicada en Snippets.
+     */
+    private fun puedeRegistrar(
+        callerId: String,
+        snippetId: UUID,
+        userId: String,
+        role: Role,
+    ): Boolean {
+        val dueno = ownerOf(snippetId)
+        return when (role) {
+            Role.OWNER -> userId == callerId && (dueno == null || dueno == callerId)
+            Role.READ -> dueno == callerId
+        }
+    }
+
+    private fun ownerOf(snippetId: UUID): String? =
+        repository.findByIdSnippetIdAndRole(snippetId, Role.OWNER)?.id?.userId
+
+    /** Por qué no se puede registrar este acceso, o null si se puede. Todas las reglas, juntas. */
+    private fun rejectionFor(
+        callerId: String,
+        snippetId: UUID,
+        userId: String,
+        role: Role,
+    ): RegisterAccessResult? =
         when {
             userId.isBlank() -> RegisterAccessResult.BlankUserId
             userId.length > SnippetPermissionId.MAX_USER_ID_LENGTH -> RegisterAccessResult.UserIdTooLong
+            !puedeRegistrar(callerId, snippetId, userId, role) -> RegisterAccessResult.NotOwner
             else -> null
         }
 }
