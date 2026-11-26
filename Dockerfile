@@ -25,7 +25,16 @@ COPY --from=build --chown=app:app /app/build/newrelic/newrelic.jar newrelic.jar
 COPY --chown=app:app newrelic/newrelic.yml newrelic.yml
 USER app
 
-EXPOSE 8080
+# El puerto es configuración: el stack lo puede pisar con SERVER_PORT. Spring y el
+# healthcheck leen esta misma variable, así nunca apuntan a puertos distintos.
+ENV SERVER_PORT=8080
+EXPOSE ${SERVER_PORT}
+
+# Swarm da por lista la tarea recién cuando Spring contesta, no cuando arranca Java.
+# readiness y no /actuator/health: ese incluye Postgres, y una caída de la base
+# reiniciaría la app en loop. start-period cubre el arranque en frío de la VM (~35 s).
+HEALTHCHECK --interval=10s --timeout=3s --start-period=60s --retries=3 \
+    CMD wget -q -O /dev/null "http://127.0.0.1:${SERVER_PORT}/actuator/health/readiness" || exit 1
 
 # El agente se engancha antes que Spring: tiene que ir en la línea de java, no adentro
 # de la app. Sin NEW_RELIC_LICENSE_KEY no manda nada y la app arranca igual.
