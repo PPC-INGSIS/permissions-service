@@ -9,9 +9,11 @@ import org.springframework.http.MediaType
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import snippetsearcher.permissions.TestcontainersConfiguration
+import java.util.UUID
 
 // Mismos @Import que PermissionControllerTest: Spring reusa ese contexto en vez de levantar otro
 @Import(TestcontainersConfiguration::class)
@@ -39,6 +41,18 @@ class SecurityConfigurationTest(
                 contentType = MediaType.APPLICATION_JSON
                 content = "{}"
             }.andExpect { status { isForbidden() } }
+    }
+
+    @Test
+    fun `borrar los accesos de un snippet sin token responde 401`() {
+        mockMvc.delete("/permissions/${UUID.randomUUID()}").andExpect { status { isUnauthorized() } }
+    }
+
+    @Test
+    fun `borrar los accesos de un snippet con solo read_snippets responde 403`() {
+        mockMvc
+            .delete("/permissions/${UUID.randomUUID()}") { with(readScope) }
+            .andExpect { status { isForbidden() } }
     }
 
     @Test

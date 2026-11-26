@@ -231,6 +231,45 @@ class PermissionServiceTest
             assertEquals(Role.READ, service.accessesOf(invitado, null).single().role)
         }
 
+        @Test
+        fun `borrar los accesos de un snippet saca el del duenio y los compartidos`() {
+            val snippetId = UUID.randomUUID()
+            val duenio = usuarioNuevo()
+            val invitado = usuarioNuevo()
+            service.register(snippetId, duenio, "OWNER")
+            service.register(snippetId, invitado, "READ")
+
+            val borrados = service.deleteAccessesOf(snippetId)
+
+            assertEquals(2, borrados)
+            assertNull(service.findRole(snippetId, duenio))
+            assertNull(service.findRole(snippetId, invitado))
+        }
+
+        // Lo que no tiene que pasar: que borrar un snippet se lleve los accesos de otro
+        @Test
+        fun `borrar los accesos de un snippet no toca los de otros`() {
+            val borrado = UUID.randomUUID()
+            val otro = UUID.randomUUID()
+            val duenio = usuarioNuevo()
+            service.register(borrado, duenio, "OWNER")
+            service.register(otro, duenio, "OWNER")
+
+            service.deleteAccessesOf(borrado)
+
+            assertEquals(Role.OWNER, service.findRole(otro, duenio))
+        }
+
+        // El reintento de Snippets: repetir el pedido no falla ni cambia el resultado
+        @Test
+        fun `borrar los accesos de un snippet sin accesos devuelve cero`() {
+            val snippetId = UUID.randomUUID()
+            service.register(snippetId, usuarioNuevo(), "OWNER")
+            service.deleteAccessesOf(snippetId)
+
+            assertEquals(0, service.deleteAccessesOf(snippetId))
+        }
+
         private companion object {
             const val TIMEOUT_SEGUNDOS = 10L
         }

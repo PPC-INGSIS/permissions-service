@@ -9,6 +9,7 @@ import org.springframework.http.MediaType
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 import snippetsearcher.permissions.TestcontainersConfiguration
@@ -227,6 +228,56 @@ class PermissionControllerTest(
     @Test
     fun `GET permissions del listado sin userId responde 400`() {
         mockMvc.get("/permissions") { with(readScope) }.andExpect {
+            status { isBadRequest() }
+        }
+    }
+
+    @Test
+    fun `DELETE permissions de un snippet responde 204 y deja sin acceso a todos`() {
+        val snippetId = UUID.randomUUID()
+        val invitado = "auth0|invitado"
+        registrar(snippetId, "OWNER")
+        registrar(snippetId, "READ", invitado)
+
+        mockMvc.delete("/permissions/{snippetId}", snippetId) { with(writeScope) }.andExpect {
+            status { isNoContent() }
+        }
+
+        for (userId in listOf(SOME_USER, invitado)) {
+            mockMvc
+                .get("/permissions/{snippetId}", snippetId) {
+                    with(readScope)
+                    param("userId", userId)
+                }.andExpect { status { isNotFound() } }
+        }
+    }
+
+    @Test
+    fun `DELETE permissions no toca los accesos de otros snippets`() {
+        val borrado = UUID.randomUUID()
+        val otro = UUID.randomUUID()
+        registrar(borrado, "OWNER")
+        registrar(otro, "OWNER")
+
+        mockMvc.delete("/permissions/{snippetId}", borrado) { with(writeScope) }
+
+        mockMvc
+            .get("/permissions/{snippetId}", otro) {
+                with(readScope)
+                param("userId", SOME_USER)
+            }.andExpect { status { isOk() } }
+    }
+
+    @Test
+    fun `DELETE permissions de un snippet sin accesos responde 204`() {
+        mockMvc.delete("/permissions/{snippetId}", UUID.randomUUID()) { with(writeScope) }.andExpect {
+            status { isNoContent() }
+        }
+    }
+
+    @Test
+    fun `DELETE permissions con un id que no es UUID responde 400`() {
+        mockMvc.delete("/permissions/no-es-un-uuid") { with(writeScope) }.andExpect {
             status { isBadRequest() }
         }
     }
