@@ -104,6 +104,7 @@ Registra un acceso. Lo llama Snippets al crear un snippet, con el dueño.
 | `201` | Se registró |
 | `409` | Ese usuario ya tenía un rol sobre ese snippet |
 | `400` | El rol no es `OWNER` ni `READ`, o falta el `userId` |
+| `403` | El que pide no puede registrar ese acceso (ver [Autorización](#autorización)) |
 
 El `role` viaja como texto y no como enum a propósito: si fuera el enum, un valor inválido lo rechazaría Jackson con una excepción y el caso dejaría de ser un resultado del dominio.
 
@@ -115,14 +116,31 @@ El rol de ese usuario sobre ese snippet.
 |---|---|
 | `200` | `{ "snippetId": "...", "userId": "...", "role": "OWNER" }` |
 | `404` | Ese usuario no tiene acceso |
+| `403` | El `userId` no es el del token: solo se puede preguntar por uno mismo |
 
 El `userId` va como **query param y no en el path**: es el `sub` de Auth0 y según el proveedor puede traer `/`. Medido contra un servidor real, en el path un `%2F` devuelve **400** antes de llegar al controller, y un `/` sin codificar cae en **otra ruta** sin avisar.
+
+### `DELETE /permissions/{snippetId}`
+
+Borra **todos** los accesos de un snippet, el del dueño y los compartidos. Lo llama Snippets al borrar un snippet.
+
+| Respuesta | Cuándo |
+|---|---|
+| `204` | Se borraron, **y también si no había ninguno** |
+| `403` | El snippet tiene otro dueño |
+
+Responde `204` aunque no hubiera accesos porque el pedido es idempotente: repetirlo —porque la respuesta se perdió en la red o porque quien llama lo vuelve a mandar— tiene que dar el mismo resultado, y la segunda vez ya no hay nada que borrar. Snippets hoy no reintenta solo, pero la regla no depende de eso. Por eso un snippet **sin dueño** tampoco se rechaza: "no hay nada que borrar" no es una falla de permisos.
 
 ### `GET /permissions?userId=...&role=...`
 
 Los snippets a los que accede un usuario, con su rol. El `role` filtra y es opcional.
 
 Sin accesos devuelve `200 []`, no `404`: el usuario existe y la pregunta tiene respuesta, que es "ninguno".
+
+| Respuesta | Cuándo |
+|---|---|
+| `200` | La lista, vacía o no |
+| `403` | El `userId` no es el del token: solo se pueden listar los propios |
 
 ## Autenticación
 
@@ -135,7 +153,38 @@ Todos los endpoints, salvo `/actuator/health`, exigen un token de Auth0 (present
 
 Sin token responde `401`; con un token sin el scope, `403`. Snippets reenvía el token del usuario en cada llamada.
 
-Un detalle que conviene tener claro: el token **autentica al que llama**, no limita sobre quién se actúa. Cuando Ana comparte con Beto, el token es de Ana y el `userId` del cuerpo es el de Beto — por diseño. Quién puede qué sobre cada snippet lo responde la tabla, no el token.
+El token dice **quién llama**. Lo que ese usuario puede hacer se decide aparte, con la tabla: ver [Autorización](#autorización).
+
+## Autorización
+
+Validar el token no alcanza: dice que quien llama es quien dice ser, no que pueda hacer lo que pide. Hasta #28, el usuario sobre el que se actuaba venía en el cuerpo o en el query, así que con un token válido cualquiera —y todo usuario logueado tiene uno— se podía registrar un acceso sobre un snippet ajeno, borrar los accesos de cualquiera o enumerar los snippets de otro.
+
+Ahora cada operación se decide con el `sub` del token y **con esta misma tabla**: el dueño de un snippet es su fila con rol `OWNER`.
+
+| Operación | Quién puede |
+|---|---|
+| `POST` con rol `OWNER` | Solo uno mismo (`userId` == `sub`), y solo si el snippet no tiene **otro** dueño |
+| `POST` con rol `READ` | Solo el dueño del snippet |
+| `DELETE /{snippetId}` | Solo el dueño. Un snippet sin dueño no se rechaza: no hay nada que borrar |
+| `GET /{snippetId}?userId=` | Solo sobre uno mismo |
+| `GET ?userId=` | Solo los propios |
+
+Decisiones y por qué:
+
+- **La regla vive acá y no en Snippets.** El dueño ya está en esta tabla, así que no hace falta saber qué es un snippet ni duplicar en dos repos una regla que después se desincroniza.
+- **Que el dueño siga siendo dueño vale como permitido.** Si el mismo registro de dueño llega dos veces —un pedido repetido por la red o por quien llama—, el segundo tiene que dar `409` (ya lo tenía) y no `403`: no cambió nada en los permisos. Snippets hoy no reintenta solo; la regla es para que repetir un pedido nunca convierta un éxito en un rechazo.
+- **Un solo `OWNER` por snippet lo sostiene la base**, con un índice único parcial (`V2`). El chequeo y el `INSERT` son dos statements, así que dos dueños a la vez pasarían los dos: la clave es `(snippet, usuario)` y no chocan entre sí.
+- **El `403` dice siempre lo mismo.** Explicar por qué no se puede —"ese snippet ya tiene dueño", "no sos el dueño"— le contaría a cualquiera si un snippet existe y de quién es.
+
+### Por qué no hay una identidad de servicio
+
+Permisos solo reconoce usuarios: no tiene forma de que Snippets diga "soy yo, actuando por mi cuenta". **Hoy no hace falta**, y conviene saber por qué, porque el día que haga falta no es obvio.
+
+Todo lo que llama a Permisos nace de un pedido de un usuario, y Snippets le reenvía ese token: crear un snippet (registra al dueño), compartirlo, borrarlo, y las dos consultas de acceso. En los cinco casos el `sub` es el del usuario que corresponde.
+
+Los trabajos en segundo plano **no llaman a Permisos**: el linteo y el formateo automáticos (snippet-service#36 y #37) y la corrida de tests (#38) trabajan sobre los snippets **propios** del usuario, que Snippets encuentra con su propia columna `owner_id`, y no cambian ningún acceso. Lo que sí necesitan es un token para PrintScript, que es lo que da snippet-service#50 — y PrintScript solo pide `read:snippets`.
+
+**Cuándo deja de alcanzar:** si alguna vez un trabajo sin usuario tiene que registrar o borrar accesos, su token M2M tiene `sub = <client-id>@clients`, que nunca va a ser dueño de nada, y va a recibir `403`. Ahí hay que agregarle un scope propio a la app M2M (por ejemplo `admin:permissions`), habilitado solo para ella y no para la SPA, y aceptarlo acá como "puede operar sobre cualquier snippet". No antes: un scope que nadie usa es una puerta abierta sin nadie que la cruce.
 
 ## Observabilidad
 
