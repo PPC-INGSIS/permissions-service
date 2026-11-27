@@ -8,7 +8,12 @@ import java.util.UUID
 
 interface SnippetPermissionRepository : JpaRepository<SnippetPermission, SnippetPermissionId> {
     /**
-     * Inserta el acceso si todavia no existe. Devuelve 1 si lo inserto, 0 si ya estaba.
+     * Inserta el acceso si no choca con otro. Devuelve 1 si lo inserto, 0 si choco.
+     *
+     * Choca si ese usuario ya tiene un rol sobre ese snippet (la clave primaria) o si es un OWNER y
+     * el snippet ya tiene otro (el indice de V2). El ON CONFLICT va sin columnas para cubrir los dos:
+     * con una sola, el choque con la otra sale como excepcion. Si el que gano todavia no commiteo,
+     * Postgres espera a que termine antes de decidir, asi que despues se puede preguntar cual fue.
      *
      * Chequear con existsById y despues guardar deja una ventana entre las dos
      * consultas: dos pedidos simultaneos pasan los dos el chequeo y el segundo revienta
@@ -23,7 +28,7 @@ interface SnippetPermissionRepository : JpaRepository<SnippetPermission, Snippet
         value = """
             INSERT INTO snippet_permission (snippet_id, user_id, role)
             VALUES (:snippetId, :userId, :role)
-            ON CONFLICT (snippet_id, user_id) DO NOTHING
+            ON CONFLICT DO NOTHING
         """,
         nativeQuery = true,
     )
@@ -44,6 +49,17 @@ interface SnippetPermissionRepository : JpaRepository<SnippetPermission, Snippet
     fun deleteAllBySnippetId(
         @Param("snippetId") snippetId: UUID,
     ): Int
+
+    /**
+     * El acceso de rol OWNER de ese snippet, o null si todavia no tiene dueno.
+     *
+     * Pega sobre el prefijo de la clave primaria (snippet_id), asi que usa el indice de la PK.
+     * Es lo que permite autorizar sin saber nada de snippets: el dueno esta en esta tabla.
+     */
+    fun findByIdSnippetIdAndRole(
+        snippetId: UUID,
+        role: Role,
+    ): SnippetPermission?
 
     /** Todos los accesos del usuario. Usa el indice snippet_permission_user. */
     fun findByIdUserId(userId: String): List<SnippetPermission>

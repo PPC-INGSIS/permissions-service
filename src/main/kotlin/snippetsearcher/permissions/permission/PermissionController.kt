@@ -2,6 +2,8 @@ package snippetsearcher.permissions.permission
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -19,9 +21,12 @@ class PermissionController(
 ) {
     @PostMapping
     fun register(
+        @AuthenticationPrincipal jwt: Jwt,
         @RequestBody request: RegisterAccessRequest,
-    ): ResponseEntity<out Any> =
-        when (val result = service.register(request.snippetId, request.userId, request.role)) {
+    ): ResponseEntity<out Any> {
+        val callerId = jwt.subject ?: return sinSub()
+
+        return when (val result = service.register(callerId, request.snippetId, request.userId, request.role)) {
             is RegisterAccessResult.Registered ->
                 ResponseEntity.status(HttpStatus.CREATED).body(result.permission.toResponse())
 
@@ -43,7 +48,10 @@ class PermissionController(
                     HttpStatus.BAD_REQUEST,
                     "El userId no puede superar los ${SnippetPermissionId.MAX_USER_ID_LENGTH} caracteres",
                 )
+
+            RegisterAccessResult.NotOwner -> noAutorizado()
         }
+    }
 
     /**
      * El userId va como query param y no en el path a proposito.
@@ -54,12 +62,18 @@ class PermissionController(
      */
     @GetMapping("/{snippetId}")
     fun role(
+        @AuthenticationPrincipal jwt: Jwt,
         @PathVariable snippetId: UUID,
         @RequestParam userId: String,
-    ): ResponseEntity<out Any> =
-        service.findRole(snippetId, userId)?.let {
+    ): ResponseEntity<out Any> {
+        val callerId = jwt.subject ?: return sinSub()
+        // Solo sobre uno mismo: si no, cualquiera podria preguntar si otro tiene acceso a un snippet
+        if (userId != callerId) return noAutorizado()
+
+        return service.findRole(snippetId, userId)?.let {
             ResponseEntity.ok(PermissionResponse(snippetId, userId, it))
         } ?: error(HttpStatus.NOT_FOUND, "El usuario no tiene acceso a ese snippet")
+    }
 
     /**
      * Borra todos los accesos de un snippet. Responde 204 aunque no hubiera ninguno:
@@ -67,10 +81,15 @@ class PermissionController(
      */
     @DeleteMapping("/{snippetId}")
     fun deleteAccesses(
+        @AuthenticationPrincipal jwt: Jwt,
         @PathVariable snippetId: UUID,
-    ): ResponseEntity<Void> {
-        service.deleteAccessesOf(snippetId)
-        return ResponseEntity.noContent().build()
+    ): ResponseEntity<out Any> {
+        val callerId = jwt.subject ?: return sinSub()
+
+        return when (service.deleteAccessesOf(callerId, snippetId)) {
+            is DeleteAccessesResult.Deleted -> ResponseEntity.noContent().build()
+            DeleteAccessesResult.NotOwner -> noAutorizado()
+        }
     }
 
     /**
@@ -81,9 +100,14 @@ class PermissionController(
      */
     @GetMapping
     fun list(
+        @AuthenticationPrincipal jwt: Jwt,
         @RequestParam userId: String,
         @RequestParam(required = false) role: String?,
     ): ResponseEntity<out Any> {
+        val callerId = jwt.subject ?: return sinSub()
+        // Solo los propios: si no, cualquiera podria enumerar los snippets de otro
+        if (userId != callerId) return noAutorizado()
+
         // El rol invalido se rechaza acá y no en el service porque es conversion de
         // entrada, igual que un snippetId que no es UUID: el dominio no llega a verlo.
         val filtro =
@@ -98,6 +122,18 @@ class PermissionController(
 
         return ResponseEntity.ok(service.accessesOf(userId, filtro).map { it.toResponse() })
     }
+
+    /**
+     * 403 y el mismo mensaje para todos los casos.
+     *
+     * Sin detalle a proposito: decir *por que* no se puede —"ese snippet ya tiene dueño", "no sos
+     * el dueño"— le contaria a cualquiera si un snippet existe y de quien es, que es justo lo que
+     * no se cuenta. El detalle queda del lado de Snippets, que si sabe a quien le esta hablando.
+     */
+    private fun noAutorizado() = error(HttpStatus.FORBIDDEN, "No se puede operar sobre los accesos de ese snippet")
+
+    // El token valido sin sub no identifica a nadie, asi que no se puede autorizar nada
+    private fun sinSub() = error(HttpStatus.UNAUTHORIZED, "El token no trae el sub del usuario")
 
     /** Todas las respuestas de error salen por acá, con la misma forma. */
     private fun error(
