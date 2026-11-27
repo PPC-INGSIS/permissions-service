@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 import snippetsearcher.permissions.TestcontainersConfiguration
 import java.util.UUID
 import java.util.concurrent.Callable
@@ -21,6 +23,7 @@ class PermissionServiceTest
     constructor(
         private val service: PermissionService,
         private val repository: SnippetPermissionRepository,
+        private val transactionManager: PlatformTransactionManager,
     ) {
         private val someUser = "auth0|65f3a1b2c3d4e5f6a7b8c9d0"
 
@@ -281,7 +284,74 @@ class PermissionServiceTest
             assertEquals(0, assertIs<DeleteAccessesResult.Deleted>(service.deleteAccessesOf(duenio, snippetId)).count)
         }
 
+        // El índice de V2, sin pasar por el chequeo del servicio: es lo que queda si dos registros se cruzan.
+        // Sin el índice, el segundo INSERT entraría (la clave es snippet + usuario) y devolvería 1
+        @Test
+        fun `la base no deja entrar un segundo dueno para el mismo snippet`() {
+            val snippetId = UUID.randomUUID()
+            val primero = usuarioNuevo()
+            val transaction = TransactionTemplate(transactionManager)
+            transaction.execute { repository.insertIfAbsent(snippetId, primero, Role.OWNER.name) }
+
+            val segundo = usuarioNuevo()
+
+            val insertados = transaction.execute { repository.insertIfAbsent(snippetId, segundo, Role.OWNER.name) }
+
+            assertEquals(0, insertados)
+            assertEquals(primero, repository.findByIdSnippetIdAndRole(snippetId, Role.OWNER)?.id?.userId)
+        }
+
+        /**
+         * La carrera que cierra el índice: varios usuarios se registran como dueños del mismo snippet a la
+         * vez. Todos pasan el chequeo "¿tiene dueño?" antes de que alguno inserte. Sin el índice quedaban
+         * varios dueños; con el índice gana uno y el resto recibe NotOwner, nunca un 500 ni un 409.
+         *
+         * Se repite porque es probabilístico: en una sola vuelta los hilos pueden no cruzarse.
+         */
+        @Test
+        fun `varios usuarios registrandose como duenos a la vez dejan un solo dueno`() {
+            repeat(VUELTAS_CARRERA) {
+                val snippetId = UUID.randomUUID()
+                val usuarios = List(HILOS_CARRERA) { usuarioNuevo() }
+
+                val resultados = enParalelo(usuarios.map { { service.register(it, snippetId, it, "OWNER") } })
+
+                assertEquals(1, resultados.count { it is RegisterAccessResult.Registered })
+                assertEquals(HILOS_CARRERA - 1, resultados.count { it is RegisterAccessResult.NotOwner })
+                // Con dos dueños, esta consulta de un solo resultado fallaría
+                val dueno = repository.findByIdSnippetIdAndRole(snippetId, Role.OWNER)?.id?.userId
+                assertEquals(usuarios[resultados.indexOfFirst { it is RegisterAccessResult.Registered }], dueno)
+            }
+        }
+
+        // Larga todas las tareas a la vez y devuelve sus resultados en el mismo orden
+        private fun enParalelo(tareas: List<() -> RegisterAccessResult>): List<RegisterAccessResult> {
+            val listos = CountDownLatch(tareas.size)
+            val largada = CountDownLatch(1)
+            val pool = Executors.newFixedThreadPool(tareas.size)
+            try {
+                val pendientes =
+                    tareas.map { tarea ->
+                        pool.submit(
+                            Callable {
+                                listos.countDown()
+                                largada.await()
+                                tarea()
+                            },
+                        )
+                    }
+                listos.await()
+                largada.countDown()
+                // Si alguna tiró excepción, get() la propaga y el test falla acá
+                return pendientes.map { it.get(TIMEOUT_SEGUNDOS, TimeUnit.SECONDS) }
+            } finally {
+                pool.shutdown()
+            }
+        }
+
         private companion object {
             const val TIMEOUT_SEGUNDOS = 10L
+            const val HILOS_CARRERA = 8
+            const val VUELTAS_CARRERA = 20
         }
     }

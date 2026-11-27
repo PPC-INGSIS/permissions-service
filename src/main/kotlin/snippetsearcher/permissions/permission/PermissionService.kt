@@ -28,7 +28,14 @@ class PermissionService(
         val id = SnippetPermissionId(snippetId, userId)
 
         if (repository.insertIfAbsent(snippetId, userId, parsedRole.name) == 0) {
-            return RegisterAccessResult.AlreadyRegistered
+            // Choco: o ese usuario ya tenia el acceso (el reintento de Snippets, que tiene que seguir
+            // saliendo bien), o se registro otro dueño a la vez y gano el. No alcanza con saber que
+            // choco: hay que mirar con quien
+            return if (repository.existsById(id)) {
+                RegisterAccessResult.AlreadyRegistered
+            } else {
+                RegisterAccessResult.NotOwner
+            }
         }
 
         // El userId es el sub de Auth0: un identificador opaco, no el mail ni el nombre
