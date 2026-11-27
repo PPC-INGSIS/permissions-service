@@ -129,7 +129,7 @@ Borra **todos** los accesos de un snippet, el del dueño y los compartidos. Lo l
 | `204` | Se borraron, **y también si no había ninguno** |
 | `403` | El snippet tiene otro dueño |
 
-Responde `204` aunque no hubiera accesos porque el pedido es idempotente: Snippets reintenta cuando no le llega la respuesta, y la segunda vez ya no hay nada que borrar. Por eso un snippet **sin dueño** tampoco se rechaza: "no hay nada que borrar" no es una falla de permisos.
+Responde `204` aunque no hubiera accesos porque el pedido es idempotente: repetirlo —porque la respuesta se perdió en la red o porque quien llama lo vuelve a mandar— tiene que dar el mismo resultado, y la segunda vez ya no hay nada que borrar. Snippets hoy no reintenta solo, pero la regla no depende de eso. Por eso un snippet **sin dueño** tampoco se rechaza: "no hay nada que borrar" no es una falla de permisos.
 
 ### `GET /permissions?userId=...&role=...`
 
@@ -172,7 +172,7 @@ Ahora cada operación se decide con el `sub` del token y **con esta misma tabla*
 Decisiones y por qué:
 
 - **La regla vive acá y no en Snippets.** El dueño ya está en esta tabla, así que no hace falta saber qué es un snippet ni duplicar en dos repos una regla que después se desincroniza.
-- **Que el dueño siga siendo dueño vale como permitido.** Snippets reintenta registrar al dueño cuando no le llega la respuesta: ese reintento tiene que seguir dando `409` y no `403`.
+- **Que el dueño siga siendo dueño vale como permitido.** Si el mismo registro de dueño llega dos veces —un pedido repetido por la red o por quien llama—, el segundo tiene que dar `409` (ya lo tenía) y no `403`: no cambió nada en los permisos. Snippets hoy no reintenta solo; la regla es para que repetir un pedido nunca convierta un éxito en un rechazo.
 - **Un solo `OWNER` por snippet lo sostiene la base**, con un índice único parcial (`V2`). El chequeo y el `INSERT` son dos statements, así que dos dueños a la vez pasarían los dos: la clave es `(snippet, usuario)` y no chocan entre sí.
 - **El `403` dice siempre lo mismo.** Explicar por qué no se puede —"ese snippet ya tiene dueño", "no sos el dueño"— le contaría a cualquiera si un snippet existe y de quién es.
 
